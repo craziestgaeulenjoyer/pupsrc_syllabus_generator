@@ -13,6 +13,7 @@
         "@types/node": "^25.5.2",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
+        "@types/react-router-dom": "^5.3.3",
         "@vitejs/plugin-react": "^6.0.1",
         "axios": ">=1.11.0 <=1.14.0",
         "concurrently": "^9.2.1",
@@ -24,8 +25,11 @@
         "wait-on": "^9.0.4"
     },
     "dependencies": {
-        "@inertiajs/react": "^3.0.2",
+        "@inertiajs/react": "^3.0.3",
+        "framer-motion": "^12.38.0",
         "react": "^19.2.4",
-        "react-dom": "^19.2.4"
+        "react-dom": "^19.2.4",
+        "react-router-dom": "^7.14.0",
+        "ziggy-js": "^2.6.2"
     }
 }
