@@ -3,7 +3,10 @@
     "target": "esnext",
     "module": "esnext",
     "jsx": "react-jsx",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "noEmit": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -12,4 +15,4 @@
     "types": ["vite/client"]
   },
   "include": ["resources/js/**/*"]
-}   
+}
