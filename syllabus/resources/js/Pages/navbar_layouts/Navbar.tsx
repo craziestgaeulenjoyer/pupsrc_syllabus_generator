@@ -112,7 +112,7 @@ const Navbar = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsOpen(false)}
-              className="fixed inset-0 bg-black/50 z-[60] backdrop-blur-[3px]"
+              className="fixed inset-0 bg-black/50 z-60 backdrop-blur-[3px]"
             />
 
             <motion.div
@@ -120,7 +120,7 @@ const Navbar = () => {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 h-screen w-[280px] md:w-[320px] bg-white z-[70] shadow-2xl flex flex-col justify-between overflow-hidden"
+              className="fixed top-0 right-0 h-screen w-70 md:w-[320px] bg-white z-70 shadow-2xl flex flex-col justify-between overflow-hidden"
             >
               <div className="p-6">
                 <div className="flex justify-end mb-8">
@@ -146,7 +146,7 @@ const Navbar = () => {
                   />
                   <NavLink 
                     index={2}
-                    href="/syllabus-generator" 
+                    href={safeRoute('syllabus.step1')} 
                     iconUrl="https://img.icons8.com/?size=100&id=79276&format=png&color=800000" 
                     label="Syllabus Generator" 
                     onClick={() => setIsOpen(false)}
@@ -159,7 +159,7 @@ const Navbar = () => {
                   href={safeRoute('logout')}
                   method="post"
                   as="button"
-                  className="flex items-center justify-center gap-3 w-full py-5 text-white transition-all font-bold text-md tracking-wider border-t border-white/10 uppercase hover:bg-black/20 active:bg-black/30 outline-none w-full text-center"
+                  className="flex items-center justify-center gap-3 py-5 text-white transition-all font-bold text-md tracking-wider border-t border-white/10 uppercase hover:bg-black/20 active:bg-black/30 outline-none w-full text-center"
                 >
                   <img 
                     src="https://img.icons8.com/?size=20&id=59781&format=png&color=FFFFFF" 

@@ -31,3 +31,9 @@ Route::get('/update-password', function () {
 Route::get('/dashboard', function () {
     return Inertia::render('dashboard_sections/Dashboard');
 })->name('dashboard');
+
+/* ---------------- SYLLABUS ROUTES ---------------- */
+
+Route::get('/syllabus-generator/step-1', function () {
+    return Inertia::render('syllabus_steps/Step1');
+})->name('syllabus.step1');
