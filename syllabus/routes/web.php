@@ -34,8 +34,12 @@ Route::get('/update-password', fn () => Inertia::render('login_sections/UpdatePa
 
 Route::middleware(['auth'])->group(function () {
 
-    Route::get('/dashboard', function () {
-        return Inertia::render('dashboard_sections/Dashboard');
-    })->name('dashboard');
+Route::get('/dashboard', function () {
+    return Inertia::render('dashboard_sections/Dashboard');
+})->name('dashboard');
 
-});
+/* ---------------- SYLLABUS ROUTES ---------------- */
+
+Route::get('/syllabus-generator/step-1', function () {
+    return Inertia::render('syllabus_steps/Step1');
+})->name('syllabus.step1');
