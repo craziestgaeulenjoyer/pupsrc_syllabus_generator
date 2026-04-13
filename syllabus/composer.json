@@ -10,6 +10,7 @@
         "doctrine/dbal": "^4.4",
         "inertiajs/inertia-laravel": "*",
         "laravel/framework": "^13.0",
+        "laravel/sanctum": "^4.3",
         "laravel/tinker": "^3.0",
         "tightenco/ziggy": "^2.6"
     },
