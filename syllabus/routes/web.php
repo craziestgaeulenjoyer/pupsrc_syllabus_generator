@@ -5,18 +5,16 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 /* ---------------- AUTHENTICATION ROUTES ---------------- */
-
-// Login Page
+// GET route
 Route::get('/', function () {
     return Inertia::render('login_sections/Login');
-})->name('login');
+})->name('login'); 
 
-// Login POST (IMPORTANT: rename to 'login')
-Route::post('/login', [AuthController::class, 'login'])->name('login.attempt');
+// POST route
+Route::post('/login', [AuthController::class, 'login'])->name('login.post');
 
-// Logoutz`
+// Logout 
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-
 
 /* ---------------- PASSWORD FLOW ---------------- */
 
@@ -56,4 +54,6 @@ Route::get('/viewer/{id}', function ($id) {
     return Inertia::render('pdf_viewer_layout/PdfViewer', [
         'file' => $file
     ]);
+});
+
 });

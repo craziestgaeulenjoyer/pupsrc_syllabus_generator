@@ -12,7 +12,7 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { route } from 'ziggy-js';
 import PageSpacer from '../pagespacer_layout/PageSpacer';
-import Page from 'react-pdf/src/Page.js';
+import { Document, Page } from 'react-pdf';
 
 const Step1 = () => {
     const [showPreview, setShowPreview] = useState(false);

@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\User;
+// use App\Models\User;
 
 return [
 
@@ -62,16 +62,11 @@ return [
     */
 
     'providers' => [
-        'users' => [
-            'driver' => 'eloquent',
-            'model' => App\Models\Professor::class,
-        ],
-
-        // 'users' => [
-        //     'driver' => 'database',
-        //     'table' => 'users',
-        // ],
+    'users' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\Professor::class, 
     ],
+],
 
     /*
     |--------------------------------------------------------------------------
