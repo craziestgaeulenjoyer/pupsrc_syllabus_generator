@@ -23,10 +23,24 @@ const Login: React.FC = () => {
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
-        
-        router.get(safeRoute('dashboard'));
-        
-        console.log("Authorizing Access for:", data.email);
+
+        console.log("🚀 Login submitted");
+        console.log("📦 Payload:", data);
+
+        router.post(route('login.attempt'), data, {
+            onStart: () => {
+                console.log("⏳ Request started");
+            },
+            onSuccess: (page) => {
+                console.log("✅ Login success response:", page);
+            },
+            onError: (errors) => {
+                console.log("❌ Login failed errors:", errors);
+            },
+            onFinish: () => {
+                console.log("🏁 Request finished");
+            },
+        });
     };
 
     return (

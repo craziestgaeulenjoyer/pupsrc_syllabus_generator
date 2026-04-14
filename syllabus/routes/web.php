@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Authentication_Controllers\AuthController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -10,23 +11,28 @@ Route::get('/', function () {
     return Inertia::render('login_sections/Login');
 })->name('login');
 
-// 1. Forgot Password - Input Email
-Route::get('/forgot-password', function () {
-    return Inertia::render('login_sections/ForgotPassword');
-})->name('password.request');
+// Login POST (IMPORTANT: rename to 'login')
+Route::post('/login', [AuthController::class, 'login'])->name('login.attempt');
 
-// 2. Verify OTP - Input 6-digit code
-Route::get('/verify-access', function () {
-    return Inertia::render('login_sections/VerifyOTP');
-})->name('password.verify');
-
-// 3. Update Password - Input New Credentials
-Route::get('/update-password', function () {
-    return Inertia::render('login_sections/UpdatePassword');
-})->name('password.reset');
+// Logoutz`
+Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 
-/* ---------------- DASHBOARD ROUTES ---------------- */
+/* ---------------- PASSWORD FLOW ---------------- */
+
+Route::get('/forgot-password', fn () => Inertia::render('login_sections/ForgotPassword'))
+    ->name('password.request');
+
+Route::get('/verify-access', fn () => Inertia::render('login_sections/VerifyOTP'))
+    ->name('password.verify');
+
+Route::get('/update-password', fn () => Inertia::render('login_sections/UpdatePassword'))
+    ->name('password.reset');
+
+
+/* ---------------- PROTECTED ROUTES ---------------- */
+
+Route::middleware(['auth'])->group(function () {
 
 Route::get('/dashboard', function () {
     return Inertia::render('dashboard_sections/Dashboard');
