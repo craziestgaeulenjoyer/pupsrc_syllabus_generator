@@ -37,3 +37,17 @@ Route::get('/dashboard', function () {
 Route::get('/syllabus-generator/step-1', function () {
     return Inertia::render('syllabus_steps/Step1');
 })->name('syllabus.step1');
+
+/* ---------------- PDF VIEWER ROUTES ---------------- */
+Route::get('/viewer/{id}', function ($id) {
+    $file = [
+        "id" => $id,
+        "name" => "BSIT 2026 - SYLLABUS",
+        "date" => "January 25, 2026",
+        "url" => "/sample.pdf"
+    ];
+
+    return Inertia::render('pdf_viewer_layout/PdfViewer', [
+        'file' => $file
+    ]);
+});
