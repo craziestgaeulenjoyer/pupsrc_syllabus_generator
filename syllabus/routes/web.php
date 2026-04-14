@@ -11,7 +11,7 @@ Route::get('/', function () {
 })->name('login'); 
 
 // POST route
-Route::post('/login', [AuthController::class, 'login'])->name('login.post');
+Route::post('/login', [AuthController::class, 'login'])->name('login.attempt');
 
 // Logout 
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
@@ -41,6 +41,15 @@ Route::get('/dashboard', function () {
 Route::get('/syllabus-generator/step-1', function () {
     return Inertia::render('syllabus_steps/Step1');
 })->name('syllabus.step1');
+
+Route::post('/syllabus-generator/step-1', function () {
+    // temporary debug
+    return back()->with('success', 'Step 1 saved!');
+})->name('syllabus.step1.store');
+
+Route::get('/syllabus-generator/step-2', function () {
+    return Inertia::render('syllabus_steps/Step2');
+})->name('syllabus.step2');
 
 /* ---------------- PDF VIEWER ROUTES ---------------- */
 Route::get('/viewer/{id}', function ($id) {

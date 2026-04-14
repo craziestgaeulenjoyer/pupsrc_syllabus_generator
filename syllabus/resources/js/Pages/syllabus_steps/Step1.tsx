@@ -13,6 +13,7 @@ import 'react-quill-new/dist/quill.snow.css';
 import { route } from 'ziggy-js';
 import PageSpacer from '../pagespacer_layout/PageSpacer';
 import { Document, Page } from 'react-pdf';
+import { router } from '@inertiajs/react';
 
 const Step1 = () => {
     const [showPreview, setShowPreview] = useState(false);
@@ -51,7 +52,7 @@ const Step1 = () => {
 
     const submit = (e: { preventDefault: () => void; }) => {
         e.preventDefault();
-        post(route('syllabus.step1.store'));
+        router.visit(route('syllabus.step2'));
     };
 
     return (
