@@ -51,7 +51,10 @@ export default function FileOptionsDropdown({
         </button>
 
         <button
-          onClick={onRename}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRename();
+          }}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
           <img src="https://img.icons8.com/?size=100&id=78859&format=png&color=800000" className="w-5 h-5" />
@@ -59,7 +62,10 @@ export default function FileOptionsDropdown({
         </button>
 
         <button
-          onClick={onDelete}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
           <img src="https://img.icons8.com/?size=100&id=78581&format=png&color=800000" className="w-5 h-5" />

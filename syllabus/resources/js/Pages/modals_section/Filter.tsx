@@ -41,7 +41,20 @@ export default function FilterDropdown({
   if (!open) return null;
 
 return (
-    <div className="absolute right-2 mt-10 w-[350px] max-w-[90vw] bg-white rounded-xl shadow-xl border border-gray-300 z-50 overflow-hidden">
+    <div className="absolute
+        left-1/4 -translate-x-1/2
+        sm:left-0 sm:translate-x-0
+        md:left-auto md:right-2
+
+        mt-10
+
+        w-[90vw] sm:w-[350px]
+        max-w-[350px]
+
+        max-h-[80vh] overflow-y-auto
+
+        bg-white rounded-[15px] shadow-xl z-50 overflow-hidden
+        border border-gray-300">
       <div ref={ref}>
         
         {/* HEADER */}

@@ -38,7 +38,22 @@ export default function SortDropdown({
 return (
     <div
       ref={ref}
-      className="absolute right-30 mt-10 w-[320px] bg-white rounded-[15px] shadow-xl z-50 overflow-hidden border border-[#D6D3D3]"
+      className="
+        absolute
+        left-1/4 -translate-x-1/2        
+        sm:left-0 sm:translate-x-0       
+        md:left-auto md:right-33   
+
+        mt-10
+
+        w-[90vw] sm:w-[320px]
+        max-w-[320px]
+
+        max-h-[80vh] overflow-y-auto
+
+        bg-white rounded-[15px] shadow-xl z-50 overflow-hidden
+        border border-[#D6D3D3]
+      "
     >
       {/* HEADER */}
       <div className="bg-[#800000] text-white px-4 py-3 flex justify-between items-center">
@@ -47,7 +62,7 @@ return (
           onClick={onClose}
           className="text-lg font-bold hover:opacity-80"
         >
-          ×
+          ✕
         </button>
       </div>
 
