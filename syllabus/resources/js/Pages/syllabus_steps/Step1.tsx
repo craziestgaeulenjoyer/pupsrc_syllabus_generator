@@ -11,6 +11,8 @@ import Navbar from '../navbar_layouts/Navbar';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { route } from 'ziggy-js';
+import PageSpacer from '../pagespacer_layout/PageSpacer';
+import Page from 'react-pdf/src/Page.js';
 
 const Step1 = () => {
     const [showPreview, setShowPreview] = useState(false);
@@ -334,6 +336,7 @@ const Step1 = () => {
                     </button>
                 </div>
             </div>
+            <PageSpacer />
         </div>
     );
 };
