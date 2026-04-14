@@ -1,10 +1,13 @@
 import Navbar from '../navbar_layouts/Navbar';
 import { Head } from '@inertiajs/react';
-import React from "react";
+import { router } from "@inertiajs/react";
 import { useState, useEffect, useRef } from 'react';
 import FilterDropdown from '../modals_section/Filter';
 import SortDropdown from '../modals_section/Sort';
 import FileOptionsDropdown from '../modals_section/File_option';
+import RenameModal from '../modals_section/Rename';
+import PageSpacer from '../pagespacer_layout/PageSpacer';
+import DeleteModal from '../modals_section/DeleteConfirmation';
 
 export default function Dashboard() {
     const [isGrid, setIsGrid] = useState(true);
@@ -22,7 +25,9 @@ export default function Dashboard() {
     const [tempDeptSort, setTempDeptSort] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
     const [openMenuId, setOpenMenuId] = useState<number | null>(null);
-    //const menuButtonRefs = useRef<{ [key: number]: React.RefObject<HTMLButtonElement | null> }>({});
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [selectedFile, setSelectedFile] = useState<any>(null);
+    const [deleteOpen, setDeleteOpen] = useState(false);
 
     const isFilterActive = dateFilter !== "" || departmentFilter !== "";
     const isSortApplied = dateSort !== "" || deptSort !== "";
@@ -96,6 +101,14 @@ export default function Dashboard() {
     document.head.appendChild(link);
     }, []);
 
+    const getGreeting = () => {
+        const hour = new Date().getHours();
+         
+        if(hour<12) return "Good morning";
+        if(hour<18) return "Good afternoon";
+        return "Good evening";
+    };
+
 return (
     <div className="min-h-screen bg-slate-50">
         <Head title="Dashboard" />
@@ -110,7 +123,7 @@ return (
                             PUP SRC Syllabus Generator
                     </h1>
                     <p className="text-slate-500 mt-2" style={{ fontFamily: "Poppins, sans-serif" }}>
-                            Welcome back, Macy! Manage your academic syllabi efficiently.
+                            {getGreeting()}, Macy! Manage your academic syllabi efficiently.
                     </p>
                 </header>
 
@@ -331,8 +344,9 @@ return (
                                 setIsFilterOpen(false);
                                 }}
                             />
-
-                            <SortDropdown
+                            </div>
+                            <div className="relative">
+                                <SortDropdown
                             open={isSortOpen}
                             onClose={() => setIsSortOpen(false)}
                             dateSort={tempDateSort}
@@ -377,6 +391,13 @@ return (
                             {filteredSyllabuses.map((file) => (
                                 <div
                                 key={file.id}
+                                onClick={(e) => {
+                                    if ((e.target as HTMLElement).closest(".file-menu")) return;
+
+                                                if (file.type === "PDF") {
+                                                    router.visit(`/viewer/${file.id}`);
+                                                }
+                                            }}
                                 className="rounded-2xl overflow-visible shadow-md hover:shadow-xl transition bg-white"
                                 >
                                 <div
@@ -405,9 +426,10 @@ return (
 
                                     <div className="relative">
                                     <button
-                                        onClick={() =>
-                                        setOpenMenuId(openMenuId === file.id ? null : file.id)
-                                        }
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // ✅ prevents card click
+                                                setOpenMenuId(openMenuId === file.id ? null : file.id);
+                                            }}
                                         className="p-1 hover:bg-gray-100 rounded px-2"
                                     >
                                         <img
@@ -424,18 +446,40 @@ return (
                                         setOpenMenuId(null);
                                         }}
                                         onRename={() => {
-                                        console.log("Rename", file.id);
-                                        setOpenMenuId(null);
+                                            setSelectedFile(file);
+                                            setRenameOpen(true);
+                                            setOpenMenuId(null);
                                         }}
                                         onDelete={() => {
-                                        console.log("Delete", file.id);
-                                        setOpenMenuId(null);
+                                            setSelectedFile(file); 
+                                            setDeleteOpen(true); 
+                                            setOpenMenuId(null);
                                         }}
                                     />
                                     </div>
                                 </div>
                                 </div>
                             ))}
+                                <RenameModal
+                                    open={renameOpen}
+                                    currentName={selectedFile?.title}
+                                    onClose={() => setRenameOpen(false)}
+                                    onConfirm={(newName) => {
+                                        console.log("Rename:", selectedFile.id, newName);
+                                        setRenameOpen(false);
+                                    }}
+                                />
+                                <DeleteModal
+                                    open={deleteOpen}
+                                    onClose={() => setDeleteOpen(false)}
+                                    onConfirm={() => {
+                                        console.log("Delete:", selectedFile.id);
+
+                                        // 👉 TODO: delete logic here
+
+                                        setDeleteOpen(false);
+                                    }}
+                                />
                             </div>
                         ) : (
                             // ================= LIST VIEW =================
@@ -467,11 +511,12 @@ return (
                                             </div>
 
                                             {/* RIGHT SIDE (OPTIONS MENU) */}
-                                            <div className="relative">
+                                            <div className="relative file-menu">
                                                 <button
-                                                    onClick={() =>
-                                                        setOpenMenuId(openMenuId === file.id ? null : file.id)
-                                                    }
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenMenuId(openMenuId === file.id ? null : file.id);
+                                                    }}
                                                     className="p-1 hover:bg-gray-100 rounded px-2"
                                                 >
                                                     <img
@@ -488,11 +533,13 @@ return (
                                                         setOpenMenuId(null);
                                                     }}
                                                     onRename={() => {
-                                                        console.log("Rename", file.id);
-                                                        setOpenMenuId(null);
+                                                        setSelectedFile(file);   
+                                                        setRenameOpen(true);    
+                                                        setOpenMenuId(null); 
                                                     }}
                                                     onDelete={() => {
-                                                        console.log("Delete", file.id);
+                                                        setSelectedFile(file);   
+                                                        setDeleteOpen(true);
                                                         setOpenMenuId(null);
                                                     }}
                                                 />
@@ -500,11 +547,29 @@ return (
                                         </div>
                                     );
                                 })}
+                                    <RenameModal
+                                        open={renameOpen}
+                                        currentName={selectedFile?.title}
+                                        onClose={() => setRenameOpen(false)}
+                                        onConfirm={(newName) => {
+                                            console.log("Rename:", selectedFile.id, newName);
+                                            setRenameOpen(false);
+                                        }}
+                                    />
+                                    <DeleteModal
+                                        open={deleteOpen}
+                                        onClose={() => setDeleteOpen(false)}
+                                        onConfirm={() => {
+                                            console.log("Delete:", selectedFile.id);
+                                            setDeleteOpen(false);
+                                        }}
+                                    />
                             </div>
                         )
                     )}
                 </div>
             </main>
+            <PageSpacer/>
         </div>
     );
 }
