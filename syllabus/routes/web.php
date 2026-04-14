@@ -57,3 +57,5 @@ Route::get('/viewer/{id}', function ($id) {
         'file' => $file
     ]);
 });
+
+});
