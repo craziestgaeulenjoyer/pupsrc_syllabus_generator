@@ -79,6 +79,27 @@ const Step1 = () => {
         return () => clearTimeout(timer);
     }, [data.course_code, data.course_title, data.course_description]);
 
+    const handlePreviewOpen = () => {
+    const validationErrors = validateStep1(data);
+
+    if (Object.keys(validationErrors).length > 0) {
+        setLocalErrors(validationErrors);
+
+        setAlertMessage("Please complete all required fields before preview.");
+        setAlertType("error");
+
+        setTimeout(() => {
+            setAlertMessage(null);
+            setLocalErrors({});
+        }, 3000);
+
+        return;
+    }
+
+    // If valid → open preview
+    setShowPreview(true);
+};
+
     const submit = (e: { preventDefault: () => void }) => {
         e.preventDefault();
 
@@ -170,7 +191,7 @@ const Step1 = () => {
                     </div>
                     <button 
                         type="button"
-                        onClick={() => setShowPreview(true)}
+                        onClick={handlePreviewOpen}
                         className="bg-[#800000] text-white px-4 md:px-6 py-3 rounded-xl font-bold text-xs md:text-sm shadow-xl hover:shadow-2xl hover:bg-[#600000] transition-all flex items-center justify-center gap-2 w-full md:w-fit active:scale-95"
                     >
                         <FileDown size={18} />
@@ -179,6 +200,13 @@ const Step1 = () => {
                 </div>
 
                 <hr className="border-t-2 border-slate-300 mb-6" />
+
+                <div className="bg-white border-l-4 border-[#800000] p-4 rounded-r-xl shadow-sm mb-8 flex items-start gap-3">
+                    <Info className="text-[#800000] mt-0.5 shrink-0" size={20} />
+                    <p className="text-xs md:text-sm text-slate-600 font-medium">
+                        <span className="font-bold text-slate-900">Instructions:</span> Fill out all fields for the Course Overview. Ensure the description matches the course contents. Fields marked Read-Only cannot be changed. All fields are required to continue.
+                    </p>
+                </div>
                 {alertMessage && alertType === 'error' && (
                     <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl shadow-sm mb-6 flex items-start gap-3">
                         <AlertTriangle className="text-red-500 mt-0.5 shrink-0" size={20} />
@@ -187,14 +215,6 @@ const Step1 = () => {
                         </p>
                     </div>
                 )}
-
-                <div className="bg-white border-l-4 border-[#800000] p-4 rounded-r-xl shadow-sm mb-8 flex items-start gap-3">
-                    <Info className="text-[#800000] mt-0.5 shrink-0" size={20} />
-                    <p className="text-xs md:text-sm text-slate-600 font-medium">
-                        <span className="font-bold text-slate-900">Instructions:</span> Fill out all fields for the Course Overview. Ensure the description matches the course contents. Fields marked Read-Only cannot be changed. All fields are required to continue.
-                    </p>
-                </div>
-
                 <form id="step1-form" onSubmit={submit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 mb-10">
                     <div className="lg:col-span-8 space-y-6">
                         <div className="bg-white p-5 md:p-7 rounded-3xl shadow-sm border border-slate-200 space-y-5">
@@ -430,8 +450,8 @@ const Step1 = () => {
             </AnimatePresence>
 
             {/* Bottom Action Bar */}
-            <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-200 p-4 md:p-5 z-50">
-                <div className="w-full flex flex-col md:flex-row items-center gap-3 px-2 md:px-6">
+            <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 sm:p-4 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
+                <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
 
                     {/* ALERT (LEFT SIDE) */}
                     <div className="w-full md:w-auto">
@@ -444,7 +464,7 @@ const Step1 = () => {
                             form="step1-form"
                             type="submit"
                             disabled={processing}
-                            className="w-full md:w-fit bg-[#800000] text-white px-6 md:px-10 py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-xl hover:bg-[#600000] transition-all flex items-center justify-center gap-3"
+                            className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all"
                         >
                             Next: Map Learning Outcomes <ChevronRight size={20}/>
                         </button>
