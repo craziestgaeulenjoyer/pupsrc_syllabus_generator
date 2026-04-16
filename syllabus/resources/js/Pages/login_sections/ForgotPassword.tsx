@@ -3,11 +3,15 @@ import { Head, Link, useForm, router } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import { Mail, ArrowLeft, GraduationCap } from 'lucide-react';
 import { route } from 'ziggy-js';
+import { validateForgotPassword } from '../Validation/CredentialValidation';
+import Alert from '../Validation/Alert';
+import { useState } from 'react';
 
-const ForgotPassword = () => {
-    const { data, setData, post, processing, errors } = useForm({
-        email: '',
-    });
+    const ForgotPassword = () => {
+        const { data, setData, post, processing, errors } = useForm({
+            email: '',
+        });
+    const [formError, setFormError] = useState('');
 
     const safeRoute = (name: string) => {
         try {
@@ -16,14 +20,26 @@ const ForgotPassword = () => {
             return "/"; 
         }
     };
+const submit = (e: React.FormEvent) => {
+    e.preventDefault();
 
-    const submit = (e: React.FormEvent) => {
-        e.preventDefault();
+    const result = validateForgotPassword(data.email);
 
-        router.get(safeRoute('password.verify'));
-        
-        console.log("Redirecting to verification for:", data.email);
-    };
+    if (!result.isValid) {
+        setFormError(result.message);
+        return;
+    }
+
+    setFormError('');
+
+    router.get(route('password.verify'), {
+        email: data.email,
+    }, {
+        onError: (errors) => {
+            setFormError(errors.email || "Something went wrong");
+        }
+    });
+};
 
     return (
         <div className="min-h-screen bg-[#F4F1E8] flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-poppins">
@@ -57,8 +73,8 @@ const ForgotPassword = () => {
                         Enter your faculty email to receive a password reset link.
                     </p>
                 </div>
-
-                <form onSubmit={submit} className="space-y-6">
+                <Alert message={formError || errors.email || ''} />
+                <form onSubmit={submit} noValidate className="space-y-6">
                     <div className="space-y-1.5">
                         <label className="text-[9px] md:text-[10px] font-black text-[#800000]/60 uppercase tracking-widest ml-1">Faculty Email</label>
                         <div className="relative group transition-all duration-300">
@@ -74,7 +90,7 @@ const ForgotPassword = () => {
                                 required
                             />
                         </div>
-                        {errors.email && <div className="text-red-500 text-[10px] font-bold ml-1">{errors.email}</div>}
+                        {/*{errors.email && <div className="text-red-500 text-[10px] font-bold ml-1">{errors.email}</div>}*/}
                     </div>
 
                     <button

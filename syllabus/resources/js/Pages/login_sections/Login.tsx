@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Head, Link, useForm, router } from '@inertiajs/react'; 
 import { motion } from 'framer-motion';
 import { Lock, Eye, EyeOff, User, GraduationCap } from 'lucide-react';
+import { validateLogin } from '../Validation/CredentialValidation';
+import Alert from '../Validation/Alert';
 import { route } from 'ziggy-js';
 
 const Login: React.FC = () => {
@@ -10,6 +12,12 @@ const Login: React.FC = () => {
         password: '',
         remember: false,
     });
+
+    const [clientErrors, setClientErrors] = useState({
+        email: '',
+        password: '',
+    });
+    const [formError, setFormError] = useState('');
 
     const [passwordVisible, setPasswordVisible] = useState(false);
 
@@ -24,22 +32,31 @@ const Login: React.FC = () => {
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        console.log("🚀 Login submitted");
-        console.log("📦 Payload:", data);
+        const result = validateLogin(data.email, data.password);
+
+        if (!result.isValid) {
+            setFormError(result.message);
+
+            //auto-hide error after 10 seconds
+            setTimeout(() => {
+                setFormError('');
+            }, 3000);
+
+            return;
+        }
+
+        setFormError('');
 
         router.post(route('login.attempt'), data, {
-            onStart: () => {
-                console.log("⏳ Request started");
+            onError: () => {
+                setFormError("Invalid professor credentials.");
+
+                //auto-hide backend error too
+                setTimeout(() => {
+                    setFormError('');
+                }, 3000);
             },
-            onSuccess: (page) => {
-                console.log("✅ Login success response:", page);
-            },
-            onError: (errors) => {
-                console.log("❌ Login failed errors:", errors);
-            },
-            onFinish: () => {
-                console.log("🏁 Request finished");
-            },
+
         });
     };
 
@@ -96,7 +113,8 @@ const Login: React.FC = () => {
                         </p>
                     </div>
 
-                    <form onSubmit={submit} className="space-y-4 md:space-y-6">
+                    <Alert message={formError} />
+                    <form onSubmit={submit} className="space-y-4 md:space-y-6" noValidate>
                         <div className="space-y-1.5">
                             <label className="text-[9px] md:text-[10px] font-black text-[#800000]/60 uppercase tracking-widest ml-1">Faculty Email</label>
                             <div className="relative group transition-all duration-300">
@@ -111,7 +129,6 @@ const Login: React.FC = () => {
                                     placeholder="Enter email"
                                 />
                             </div>
-                            {errors.email && <div className="text-red-500 text-[10px] font-bold ml-1">{errors.email}</div>}
                         </div>
 
                         <div className="space-y-1.5">
@@ -135,7 +152,6 @@ const Login: React.FC = () => {
                                     {passwordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
                                 </button>
                             </div>
-                            {errors.password && <div className="text-red-500 text-[10px] font-bold ml-1">{errors.password}</div>}
                         </div>
 
                         <div className="flex justify-end">

@@ -3,9 +3,13 @@ import { Head, Link, useForm } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import { LockKeyhole, ArrowLeft, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { route } from 'ziggy-js';
+import { validateResetPassword } from '../Validation/CredentialValidation';
+import Alert from '../Validation/Alert';
 
-const UpdatePassword = () => {
-    const [showPassword, setShowPassword] = useState(false);
+    const UpdatePassword = () => {
+        const [showPassword, setShowPassword] = useState(false);
+
+    const [formError, setFormError] = useState('');
     
     const { data, setData, post, processing, errors, reset } = useForm({
         password: '',
@@ -14,11 +18,35 @@ const UpdatePassword = () => {
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
-        // post(route('password.update'), {
-        //     onFinish: () => reset('password', 'password_confirmation'),
-        // });
+
+        const result = validateResetPassword(
+            data.password,
+            data.password_confirmation
+        );
+
+        if (!result.isValid) {
+            setFormError(result.message);
+            return;
+        }
+
+        setFormError('');
+
+        post(route('password.update'), {
+            onError: (errors) => {
+                setFormError(errors.password || "Failed to update password");
+            },
+            onFinish: () => {
+                reset('password', 'password_confirmation');
+            },
+        });
+
         console.log("Updating password...");
     };
+    const alertMessage =
+    formError ||
+    errors.password ||
+    errors.password_confirmation ||
+    null;
 
     return (
         <div className="min-h-screen bg-[#F4F1E8] flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-poppins">
@@ -52,7 +80,8 @@ const UpdatePassword = () => {
                     </p>
                 </div>
 
-                <form onSubmit={submit} className="space-y-5">
+               {alertMessage && <Alert message={alertMessage} />}
+                <form onSubmit={submit} className="space-y-6" noValidate>
                     {/* New Password */}
                     <div className="space-y-1.5">
                         <label className="text-[9px] md:text-[10px] font-black text-[#800000]/60 uppercase tracking-widest ml-1">New Password</label>
@@ -73,7 +102,7 @@ const UpdatePassword = () => {
                                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                             </button>
                         </div>
-                        {errors.password && <div className="text-red-500 text-[10px] font-bold ml-1">{errors.password}</div>}
+                        {/*{errors.password && <div className="text-red-500 text-[10px] font-bold ml-1">{errors.password}</div>}*/}
                     </div>
 
                     {/* Confirm Password */}

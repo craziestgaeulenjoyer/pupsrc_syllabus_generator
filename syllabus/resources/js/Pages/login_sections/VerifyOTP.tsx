@@ -3,14 +3,18 @@ import { Head, Link, useForm, router } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, ArrowLeft, Timer } from 'lucide-react';
 import { route } from 'ziggy-js';
+import { validateOTP} from '../Validation/CredentialValidation';
+import Alert from '../Validation/Alert';
 
-const VerifyOTP = () => {
+    const VerifyOTP = () => {
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
     const { data, setData, post, processing, errors } = useForm({
         code: '',
     });
+
+    const [formError, setFormError] = useState('');
 
     const safeRoute = (name: string) => {
         try {
@@ -21,14 +25,18 @@ const VerifyOTP = () => {
     };
 
     const handleChange = (element: HTMLInputElement, index: number) => {
-        if (isNaN(Number(element.value))) return false;
+        const value = element.value.replace(/\D/g, ''); // only numbers
+
+        if (!value) return;
 
         const newOtp = [...otp];
-        newOtp[index] = element.value;
+        newOtp[index] = value[0]; // only 1 digit
         setOtp(newOtp);
-        setData('code', newOtp.join(''));
 
-        if (element.value !== '' && index < 5) {
+        const fullCode = newOtp.join('');
+        setData('code', fullCode);
+
+        if (index < 5) {
             inputRefs.current[index + 1]?.focus();
         }
     };
@@ -41,9 +49,24 @@ const VerifyOTP = () => {
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
-        
-        router.get(safeRoute('password.reset')); 
-        
+
+        const result = validateOTP(data.code);
+
+        if (!result.isValid) {
+            setFormError(result.message);
+            return;
+        }
+
+        setFormError('');
+
+        router.get(safeRoute('password.reset'), {
+            code: data.code,
+        }, {
+            onError: (errors) => {
+                setFormError(errors.code || "Invalid verification code");
+            }
+        });
+
         console.log("OTP Verified. Redirecting to Update Password...");
     };
 
@@ -79,6 +102,7 @@ const VerifyOTP = () => {
                     </p>
                 </div>
 
+                <Alert message={formError} />
                 <form onSubmit={submit} className="space-y-8">
                     <div className="grid grid-cols-6 gap-2 sm:gap-3 w-full">
                         {otp.map((digit, index) => (

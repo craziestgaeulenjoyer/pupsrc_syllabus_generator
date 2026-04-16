@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Head, useForm } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -14,10 +14,14 @@ import { route } from 'ziggy-js';
 import PageSpacer from '../pagespacer_layout/PageSpacer';
 import { Document, Page } from 'react-pdf';
 import { router } from '@inertiajs/react';
+import { validateStep1 } from '../Validation/SyllabusValidation';
+import { validateCourse } from '../Validation/SyllabusValidation';
+import Alert from '../Validation/Alert';
 
 const Step1 = () => {
     const [showPreview, setShowPreview] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
+    const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
     
     const { data, setData, post, processing, errors } = useForm({
         course_code: '',
@@ -49,9 +53,53 @@ const Step1 = () => {
         if (type === 'up' && current < 10) setData('course_credit', current + 1);
         if (type === 'down' && current > 0) setData('course_credit', current - 1);
     };
+    const [alertMessage, setAlertMessage] = useState<string | null>(null);
+    const [alertType, setAlertType] = useState<'error' | 'success'>('error');
 
-    const submit = (e: { preventDefault: () => void; }) => {
+    useEffect(() => {
+        const hasEmptyFields =
+            !data.course_code ||
+            !data.course_title ||
+            !data.course_description;
+
+        const validationErrors = validateStep1(data);
+
+        // If ANY issue → ALWAYS hide success
+        if (hasEmptyFields || Object.keys(validationErrors).length > 0) {
+            setAlertMessage(null);
+            return;
+        }
+
+        // success message 
+        const timer = setTimeout(() => {
+            setAlertMessage("All fields are complete.");
+            setAlertType("success");
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [data.course_code, data.course_title, data.course_description]);
+
+    const submit = (e: { preventDefault: () => void }) => {
         e.preventDefault();
+
+        const validationErrors = validateStep1(data);
+
+        setAlertMessage(null);
+
+        if (Object.keys(validationErrors).length > 0) {
+            setLocalErrors(validationErrors);
+
+            setAlertMessage("Please complete all required fields.");
+            setAlertType("error");
+
+            setTimeout(() => {
+                setAlertMessage(null);
+                setLocalErrors({});
+            }, 3000);
+
+            return;
+        }
+
         router.visit(route('syllabus.step2'));
     };
 
@@ -131,6 +179,14 @@ const Step1 = () => {
                 </div>
 
                 <hr className="border-t-2 border-slate-300 mb-6" />
+                {alertMessage && alertType === 'error' && (
+                    <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl shadow-sm mb-6 flex items-start gap-3">
+                        <AlertTriangle className="text-red-500 mt-0.5 shrink-0" size={20} />
+                        <p className="text-xs md:text-sm text-red-700 font-medium">
+                            <span className="font-bold">Course Overview & Description Error:</span> {alertMessage}
+                        </p>
+                    </div>
+                )}
 
                 <div className="bg-white border-l-4 border-[#800000] p-4 rounded-r-xl shadow-sm mb-8 flex items-start gap-3">
                     <Info className="text-[#800000] mt-0.5 shrink-0" size={20} />
@@ -148,8 +204,19 @@ const Step1 = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
                                         <label className="text-[10px] md:text-[12px] font-bold text-slate-500 uppercase ml-1">Course Code:</label>
-                                        <input type="text" value={data.course_code} onChange={e => setData('course_code', e.target.value)}
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-[#800000]/20 focus:border-[#800000] outline-none" placeholder="e.g., COMP 001"/>
+                                       <input
+                                            type="text"
+                                            value={data.course_code}
+                                            onChange={e => setData('course_code', e.target.value)}
+                                            className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm outline-none
+                                            ${localErrors.course_code ? 'border-red-500' : 'border-slate-200'}`}
+                                            placeholder="e.g., COMP 001"
+                                        />
+                                            {localErrors.course_code && (
+                                                <p className="text-red-500 text-xs mt-1">
+                                                    {localErrors.course_code}
+                                                </p>
+                                            )}
                                     </div>
 
                                     <div className="space-y-1.5">
@@ -169,7 +236,14 @@ const Step1 = () => {
                                 <div className="space-y-1.5">
                                     <label className="text-[10px] md:text-[12px] font-bold text-slate-500 uppercase ml-1">Course Title:</label>
                                     <input type="text" value={data.course_title} onChange={e => setData('course_title', e.target.value)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-[#800000]/20 focus:border-[#800000] outline-none" placeholder="Enter course title"/>
+                                        className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm outline-none
+                                                    ${localErrors.course_title ? 'border-red-500' : 'border-slate-200'}`}
+                                                    placeholder="e.g., COMP 001"/>
+                                            {localErrors.course_title && (
+                                                <p className="text-red-500 text-xs mt-1">
+                                                    {localErrors.course_title}
+                                                </p>
+                                            )}
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -195,9 +269,24 @@ const Step1 = () => {
                                 </button>
                             </div>
                             <div className="flex-1">
-                                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50 h-full">
-                                    <ReactQuill theme="snow" value={data.course_description} onChange={(val) => setData('course_description', val)} modules={modules} />
+                                <div
+                                    className={`border rounded-2xl overflow-hidden bg-slate-50 h-full
+                                    ${localErrors.course_description ? 'border-red-500' : 'border-slate-200'}`}
+                                >
+                                    <ReactQuill
+                                        theme="snow"
+                                        value={data.course_description}
+                                        onChange={(val) => setData('course_description', val)}
+                                        modules={modules}
+                                        placeholder="Enter course description..."
+                                    />
                                 </div>
+
+                                {localErrors.course_description && (
+                                    <p className="text-red-500 text-xs mt-2 pl-1">
+                                        {localErrors.course_description}
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -331,10 +420,24 @@ const Step1 = () => {
 
             {/* Bottom Action Bar */}
             <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-200 p-4 md:p-5 z-50">
-                <div className="max-w-7xl mx-auto flex justify-end">
-                    <button form="step1-form" type="submit" disabled={processing} className="w-full md:w-fit bg-[#800000] text-white px-6 md:px-10 py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-xl hover:bg-[#600000] transition-all flex items-center justify-center gap-3">
-                        Next: Map Learning Outcomes <ChevronRight size={20}/>
-                    </button>
+                <div className="w-full flex flex-col md:flex-row items-center gap-3 px-2 md:px-6">
+
+                    {/* ALERT (LEFT SIDE) */}
+                    <div className="w-full md:w-auto">
+                        <Alert message={alertMessage} type={alertType} />
+                    </div>
+
+                    {/* BUTTON (RIGHT SIDE) */}
+                    <div className="md:ml-auto w-full md:w-auto">
+                        <button
+                            form="step1-form"
+                            type="submit"
+                            disabled={processing}
+                            className="w-full md:w-fit bg-[#800000] text-white px-6 md:px-10 py-3 md:py-4 rounded-2xl font-black text-xs md:text-sm shadow-xl hover:bg-[#600000] transition-all flex items-center justify-center gap-3"
+                        >
+                            Next: Map Learning Outcomes <ChevronRight size={20}/>
+                        </button>
+                    </div>
                 </div>
             </div>
             <PageSpacer />
