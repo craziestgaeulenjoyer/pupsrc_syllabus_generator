@@ -1,5 +1,5 @@
 import Navbar from '../navbar_layouts/Navbar';
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import { router } from "@inertiajs/react";
 import { useState, useEffect, useRef } from 'react';
 import FilterDropdown from '../modals_section/Filter';
@@ -28,6 +28,8 @@ export default function Dashboard() {
     const [renameOpen, setRenameOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<any>(null);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const { props }: any = usePage();
+    const user = props.auth?.user;
 
     const isFilterActive = dateFilter !== "" || departmentFilter !== "";
     const isSortApplied = dateSort !== "" || deptSort !== "";
@@ -123,7 +125,7 @@ return (
                             PUP SRC Syllabus Generator
                     </h1>
                     <p className="text-slate-500 mt-2" style={{ fontFamily: "Poppins, sans-serif" }}>
-                            {getGreeting()}, Macy! Manage your academic syllabi efficiently.
+                            {getGreeting()}, {user?.name} Manage your academic syllabi efficiently.
                     </p>
                 </header>
 
@@ -494,6 +496,13 @@ return (
                                     return (
                                         <div
                                             key={file.id}
+                                            onClick={(e) => {
+                                                        if ((e.target as HTMLElement).closest(".file-menu")) return;
+
+                                                        if (file.type === "PDF") {
+                                                            router.visit(`/viewer/${file.id}`);
+                                                    }
+                                                }}
                                             className="flex items-center justify-between bg-white border border-[#c7c7c7] rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition relative"
                                         >
                                             {/* LEFT SIDE */}
