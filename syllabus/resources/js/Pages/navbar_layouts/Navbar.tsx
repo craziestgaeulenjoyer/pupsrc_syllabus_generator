@@ -3,11 +3,17 @@ declare const route: any;
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, usePage } from '@inertiajs/react';
+import { Link, usePage, router } from '@inertiajs/react';
+import LogoutConfirmationModal from '../modals_section/LogoutConfirmation';
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { url } = usePage();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+    const handleLogout = () => {
+    router.post(route("logout"));
+  };
 
   const safeRoute = (name: string) => {
     try {
@@ -34,7 +40,11 @@ const Navbar = () => {
     href: string, 
     onClick?: () => void 
   }) => {
-    const isActive = url === href || (href !== '/' && url.startsWith(href));
+    const isActive =
+      url === href ||
+      (href !== '/' && url.startsWith(href)) ||
+      (label === "Syllabus Generator" && url.startsWith('/syllabus'));
+
 
     return (
       <Link 
@@ -155,24 +165,30 @@ const Navbar = () => {
               </div>
 
               <div className="bg-[#800000] mt-auto">
-                <Link
-                  href={safeRoute('logout')}
-                  method="post"
-                  as="button"
-                  className="flex items-center justify-center gap-3 py-5 text-white transition-all font-bold text-md tracking-wider border-t border-white/10 uppercase hover:bg-black/20 active:bg-black/30 outline-none w-full text-center"
-                >
-                  <img 
-                    src="https://img.icons8.com/?size=20&id=59781&format=png&color=FFFFFF" 
-                    alt="logout" 
-                    className="w-5 h-5" 
-                  />
-                  Log Out
-                </Link>
+              <button
+                onClick={() => setShowLogoutModal(true)}
+                className="flex items-center justify-center gap-3 py-5 text-white transition-all font-bold text-md tracking-wider border-t border-white/10 uppercase hover:bg-black/20 active:bg-black/30 outline-none w-full text-center"
+              >
+                <img
+                  src="https://img.icons8.com/?size=20&id=59781&format=png&color=FFFFFF"
+                  alt="logout"
+                  className="w-5 h-5"
+                />
+                Log Out
+              </button>
               </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
+      <LogoutConfirmationModal
+        open={showLogoutModal}
+        onClose={() => setShowLogoutModal(false)}
+        onConfirm={() => {
+          setShowLogoutModal(false);
+          handleLogout();
+        }}
+      />
     </>
   );
 };
