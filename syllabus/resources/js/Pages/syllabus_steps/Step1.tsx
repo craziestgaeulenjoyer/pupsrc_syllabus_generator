@@ -3,7 +3,7 @@ import { Head, useForm } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     ChevronRight, BookOpen, ScrollText, CheckCircle2, 
-    ListChecks, GraduationCap, Save, ChevronUp, 
+    ListChecks, GraduationCap, Save, ChevronUp, FileDown,
     ChevronDown, X, FileText, Info, AlertTriangle
 } from 'lucide-react';
 import Navbar from '../navbar_layouts/Navbar'; 
@@ -173,7 +173,7 @@ const Step1 = () => {
                         onClick={() => setShowPreview(true)}
                         className="bg-[#800000] text-white px-4 md:px-6 py-3 rounded-xl font-bold text-xs md:text-sm shadow-xl hover:shadow-2xl hover:bg-[#600000] transition-all flex items-center justify-center gap-2 w-full md:w-fit active:scale-95"
                     >
-                        <FileText size={18} />
+                        <FileDown size={18} />
                         View Live PDF Preview
                     </button>
                 </div>
