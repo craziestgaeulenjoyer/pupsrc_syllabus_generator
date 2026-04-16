@@ -366,7 +366,7 @@ const Step2 = () => {
                                                                     currentValue 
                                                                         ? 'border-[#800000] text-[#800000] bg-red-50/50' 
                                                                         : showErrorState
-                                                                            ? '!border-red-500 !text-red-600 bg-red-50 shadow-sm' 
+                                                                            ? 'border-red-500! text-red-600! bg-red-50 shadow-sm' 
                                                                             : 'border-slate-100 text-slate-400 hover:border-slate-300'
                                                                 }`}
                                                                 value={currentValue || ''}
