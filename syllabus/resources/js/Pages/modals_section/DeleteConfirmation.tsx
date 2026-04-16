@@ -22,7 +22,7 @@ export default function DeleteModal({
 
         {/*Content*/}  
         <img
-          src="https://img.icons8.com/?size=100&id=y4IaznsvidBW&format=png&color=000000"
+          src="https://img.icons8.com/?size=100&id=14297&format=png&color=dc2626"
           className="w-16 mx-auto mb-3"
         />
         <h2 className="text-lg font-bold text-gray-800 mb-1">
