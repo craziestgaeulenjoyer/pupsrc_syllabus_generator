@@ -317,7 +317,7 @@ const Step1 = () => {
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-100 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-2 md:p-4">
                         <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white w-full max-w-[98%] md:max-w-[95%] h-[95vh] md:h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
                             <div className="bg-[#800000] p-3 md:p-4 flex justify-between items-center text-white shrink-0">
-                                <span className="font-bold flex items-center gap-2 text-xs md:text-base"><FileText size={20}/> SYLLABUS GENERATOR PREVIEW </span>
+                                <span className="font-bold flex items-center gap-2 text-xs md:text-base"><FileText size={20}/> COURSE INFO SYLLABUS PREVIEW </span>
                                 <button onClick={() => setShowPreview(false)} className="p-1 hover:bg-white/10 rounded-lg"><X size={24}/></button>
                             </div>
 
@@ -407,9 +407,20 @@ const Step1 = () => {
                                         </tbody>
                                     </table>
                                     
-                                    <div className="mt-8 flex justify-between items-end border-t border-black pt-2">
-                                        <p className="text-[8px] italic">PUP SyllabiSys v1.0 Generated Content</p>
-                                        <p className="font-bold text-[11px] tracking-widest uppercase italic">The Country's 1st Polytechnic University</p>
+                                    {/* Bottom Labels  */}
+                                  <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
+                                        <div>
+                                            <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
+                                            <p>Direct Line: 0961-8023780</p>
+                                            <p>Website: https://pupsrc101.school.blog/ | Email: starosa@pup.edu.ph</p>
+                                        </div>
+                                        <div className="text-right flex flex-col items-end gap-1">
+                                            <div className="flex gap-2">
+                                                <img src="/images/iso_logo.png" alt="ISO" className="h-8 opacity-70" />
+                                                <img src="/images/ajb_logo.png" alt="AJB" className="h-8 opacity-70" />
+                                            </div>
+                                             <p className="font-bold text-black not-italic uppercase">THE COUNTRY'S 1st POLYTECHNIC U</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

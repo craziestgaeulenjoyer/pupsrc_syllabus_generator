@@ -132,7 +132,7 @@ export default function PdfViewer({ file }: any) {
             <span className="hidden sm:inline hover:text-[#800000]">Go Back</span>
           </button>
           <div className="flex items-center gap-3">
-            <span className={`text-sm font-bold truncate max-w-[150px] sm:max-w-[300px] ${isDarkMode ? "text-white" : "text-black"}`}>{file.name}.pdf</span>
+            <span className={`text-sm font-bold truncate max-w-37.5 sm:max-w-75 ${isDarkMode ? "text-white" : "text-black"}`}>{file.name}.pdf</span>
           </div>
           <button className={`px-4 py-1.5 rounded-full border text-sm font-bold shadow-sm flex items-center gap-2 transition-all ${isDarkMode ? "bg-white text-black border-white hover:bg-gray-200" : "bg-white text-[#800000] border-[#c7c7c7]/45 hover:bg-[#800000]/30 hover:text-white"}`}>
             <span className="hidden md:inline">Download</span>
@@ -179,10 +179,10 @@ export default function PdfViewer({ file }: any) {
         {/* FLOATING ZOOMER + THEME + PRINT */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[#c7c7c7]/60 backdrop-blur-sm border border-gray-800 px-4 py-2 rounded-full shadow-2xl z-20">
           <button onClick={handleZoomOut} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600 font-bold hover:text-black">－</button>
-          <button onClick={handleResetZoom} className="px-2 text-xs font-bold text-black min-w-[60px] text-center">{Math.round(scale * 100)}%</button>
+          <button onClick={handleResetZoom} className="px-2 text-xs font-bold text-black min-w-15 text-center">{Math.round(scale * 100)}%</button>
           <button onClick={handleZoomIn} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-600 font-bold hover:text-black">＋</button>
           
-          <div className="w-[1px] h-4 bg-gray-800 mx-1"></div>
+          <div className="w-px h-4 bg-gray-800 mx-1"></div>
 
           {/* THEME TOGGLE */}
           <button 

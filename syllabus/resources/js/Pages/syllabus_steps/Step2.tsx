@@ -312,7 +312,7 @@ const Step2 = () => {
                         >
                             <div className="bg-[#800000] p-3 sm:p-4 flex justify-between items-center text-white shrink-0">
                                 <span className="font-bold flex items-center gap-2 uppercase tracking-wider text-[10px] sm:text-xs">
-                                    <FileText size={18} className="shrink-0"/> Syllabus Preview
+                                    <FileText size={18} className="shrink-0"/> MAP LEARNING OUTCOMES SYLLABUS PREVIEW
                                 </span>
                                 <button onClick={() => setShowPreview(false)} className="hover:bg-white/20 p-1.5 rounded-lg transition-colors"><X size={20}/></button>
                             </div>
@@ -400,6 +400,22 @@ const Step2 = () => {
                                             </div>
                                         </div>
                                         <p className="text-[7pt] mt-2 italic">Legend: L-Learned, P-Practiced, O-Opportunity to Learn</p>
+                                        
+                                        {/* Bottom Labels  */}
+                                        <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
+                                            <div>
+                                                <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
+                                                <p>Direct Line: 0961-8023780</p>
+                                                <p>Website: https://pupsrc101.school.blog/ | Email: starosa@pup.edu.ph</p>
+                                            </div>
+                                            <div className="text-right flex flex-col items-end gap-1">
+                                                <div className="flex gap-2">
+                                                     <img src="/images/iso_logo.png" alt="ISO" className="h-8 opacity-70" />
+                                                     <img src="/images/ajb_logo.png" alt="AJB" className="h-8 opacity-70" />
+                                                </div>
+                                                <p className="font-bold text-black not-italic uppercase">THE COUNTRY'S 1st POLYTECHNIC U</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

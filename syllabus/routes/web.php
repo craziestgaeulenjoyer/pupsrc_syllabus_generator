@@ -51,6 +51,14 @@ Route::get('/syllabus-generator/step-2', function () {
     return Inertia::render('syllabus_steps/Step2');
 })->name('syllabus.step2');
 
+Route::get('/syllabus-generator/step-3', function () {
+    return Inertia::render('syllabus_steps/Step3');
+})->name('syllabus.step3');
+
+Route::post('/syllabus-generator/step-3', function () {
+    return back()->with('success', 'Weekly Plan saved!');
+})->name('syllabus.step3.store');
+
 /* ---------------- PDF VIEWER ROUTES ---------------- */
 Route::get('/viewer/{id}', function ($id) {
     $file = [
