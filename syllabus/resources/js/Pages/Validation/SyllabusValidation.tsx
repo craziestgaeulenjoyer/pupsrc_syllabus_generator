@@ -39,3 +39,52 @@ export const validateCourse = (
         message: "",
     };
 };
+
+export const validateStep2 = (
+    plos: { id: number; label: string }[],
+    clos: { id: number; text: string }[],
+    iloMapping: Record<string, boolean>,
+    ploMapping: Record<string, string | null>
+): Record<string, string> => {
+
+    const errors: Record<string, string> = {};
+
+    // ✅ PLO validation
+    plos.forEach((plo, idx) => {
+        if (!plo.label.trim()) {
+            errors[`plo_${idx}`] = "PLO description is required";
+        }
+
+        const hasMapping = Object.keys(iloMapping).some(
+            key => key.startsWith(`${plo.id}-`) && iloMapping[key]
+        );
+
+        if (!hasMapping) {
+            errors[`plo_map_${idx}`] = "Select at least one ILO";
+        }
+    });
+
+clos.forEach((clo, idx) => {
+    if (!clo.text.trim()) {
+        errors[`clo_${idx}`] = "CLO description is required";
+    }
+
+    // ✅ Check if at least ONE PLO mapping exists in this row
+    const hasAtLeastOneMapping = plos.some((plo) => {
+        const value = ploMapping[`${clo.id}-${plo.id}`];
+
+        return (
+            value &&
+            (
+                ['L', 'P', 'O'].includes(value.toUpperCase()) ||
+                /^\(?\d+\)?$/.test(value)
+            )
+        );
+    });
+
+    if (!hasAtLeastOneMapping) {
+        errors[`clo_map_${idx}`] = "Select at least one PLO mapping";
+    }
+});
+    return errors;
+};
