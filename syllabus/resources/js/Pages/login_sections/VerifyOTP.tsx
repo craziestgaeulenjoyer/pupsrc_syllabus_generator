@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Head, Link, useForm, router } from '@inertiajs/react'; 
 import { motion } from 'framer-motion';
 import { ShieldCheck, ArrowLeft, Timer } from 'lucide-react';
@@ -6,13 +6,18 @@ import { route } from 'ziggy-js';
 import { validateOTP} from '../Validation/CredentialValidation';
 import Alert from '../Validation/Alert';
 
-    const VerifyOTP = () => {
+const VerifyOTP = ({ email }: { email:string }) => {
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
     const { data, setData, post, processing, errors } = useForm({
+        email: '',
         code: '',
     });
+
+    useEffect(() => {
+        setData('email', email);
+    }, [email]);
 
     const [formError, setFormError] = useState('');
 
@@ -50,23 +55,13 @@ import Alert from '../Validation/Alert';
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        const result = validateOTP(data.code);
-
-        if (!result.isValid) {
-            setFormError(result.message);
+        if (data.code.length !== 6) {
+            alert("Failed to Verify OTP.");
             return;
         }
-
-        setFormError('');
-
-        router.get(safeRoute('password.reset'), {
-            code: data.code,
-        }, {
-            onError: (errors) => {
-                setFormError(errors.code || "Invalid verification code");
-            }
-        });
-
+        
+        post(safeRoute('otp.verify')); 
+        
         console.log("OTP Verified. Redirecting to Update Password...");
     };
 

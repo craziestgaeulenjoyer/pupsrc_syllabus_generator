@@ -20,26 +20,25 @@ import { useState } from 'react';
             return "/"; 
         }
     };
-const submit = (e: React.FormEvent) => {
-    e.preventDefault();
 
-    const result = validateForgotPassword(data.email);
+    const submit = (e: React.FormEvent) => {
+        e.preventDefault();
 
-    if (!result.isValid) {
-        setFormError(result.message);
-        return;
-    }
+        const result = validateForgotPassword(data.email);
 
-    setFormError('');
-
-    router.get(route('password.verify'), {
-        email: data.email,
-    }, {
-        onError: (errors) => {
-            setFormError(errors.email || "Something went wrong");
+        if (!result.isValid) {
+            setFormError(result.message);
+            return;
         }
-    });
-};
+
+        setFormError('');
+
+        post(route('password.email'), {
+            onError: (errors) => {
+                setFormError(errors.email || "Something went wrong");
+            }
+        });
+    };
 
     return (
         <div className="min-h-screen bg-[#F4F1E8] flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-poppins">
