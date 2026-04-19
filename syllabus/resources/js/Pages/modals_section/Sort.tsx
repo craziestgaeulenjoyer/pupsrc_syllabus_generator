@@ -1,3 +1,4 @@
+import { RotateCcw } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 interface SortDropdownProps {
@@ -147,11 +148,7 @@ export default function SortDropdown({
             onClick={onReset}
             className="flex items-center gap-2 text-xs px-4 py-2 border border-[#D6D3D3] rounded-lg hover:bg-gray-100"
           >
-            <img
-              src="https://img.icons8.com/?size=100&id=21967&format=png&color=000000"
-              alt="Reset"
-              className="w-4 h-4"
-            />
+          <RotateCcw color="#00000092" className="w-4 h-4"/>
             <span>Reset</span>
           </button>
 

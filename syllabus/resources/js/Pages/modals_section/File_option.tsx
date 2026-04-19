@@ -1,3 +1,4 @@
+import { FolderPen, SquarePen, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 interface FileOptionsDropdownProps {
@@ -46,7 +47,7 @@ export default function FileOptionsDropdown({
           onClick={onEdit}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
-          <img src="https://img.icons8.com/?size=100&id=59856&format=png&color=800000" className="w-5 h-5" />
+          <SquarePen  color="#800000" className="w-4.5 h-4.5"/>
           Edit
         </button>
 
@@ -57,7 +58,7 @@ export default function FileOptionsDropdown({
           }}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
-          <img src="https://img.icons8.com/?size=100&id=78859&format=png&color=800000" className="w-5 h-5" />
+          <FolderPen  color="#800000" className="w-4.5 h-4.5"/>
           Rename
         </button>
 
@@ -68,7 +69,7 @@ export default function FileOptionsDropdown({
           }}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
-          <img src="https://img.icons8.com/?size=100&id=78581&format=png&color=800000" className="w-5 h-5" />
+          <Trash2 color="#800000" className="w-4.5 h-4.5"/>
           Delete
         </button>
       </div>
