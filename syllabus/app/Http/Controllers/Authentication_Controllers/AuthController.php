@@ -14,7 +14,7 @@ class AuthController extends Controller
     // WEB LOGIN (Inertia)
     public function login(Request $request)
     {
-        Log::info('🔥 Login attempt started', [
+        Log::info('Login attempt started', [
             'email' => $request->email,
             'password' => $request->password
         ]);
@@ -24,28 +24,28 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        Log::info('📦 Credentials validated');
+        Log::info('Credentials validated');
 
         $attempt = Auth::guard('web')->attempt([
             'email' => $credentials['email'],
             'password' => $credentials['password']
         ]);
 
-        Log::info('🔐 Auth attempt result', [
+        Log::info('Auth attempt result', [
             'success' => $attempt
         ]);
 
         if ($attempt) {
             $request->session()->regenerate();
 
-            Log::info('✅ Login successful', [
+            Log::info('Login successful', [
                 'user_id' => Auth::id()
             ]);
 
             return redirect()->route('dashboard');
         }
 
-        Log::warning('❌ Login failed - invalid credentials');
+        Log::warning('Login failed - invalid credentials');
 
         return back()->withErrors([
             'email' => 'Invalid professor credentials.',

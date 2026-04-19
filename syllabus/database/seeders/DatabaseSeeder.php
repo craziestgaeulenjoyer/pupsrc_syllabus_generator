@@ -18,7 +18,7 @@ class DatabaseSeeder extends Seeder
     {
         Professor::create([
             'name' => 'Admin',
-            'email' => 'admin@gmail.com',
+            'email' => 'admin@gmail.com', /* Use your email for testing purposes */
             'password' => Hash::make('admin123'),
         ]);
     }

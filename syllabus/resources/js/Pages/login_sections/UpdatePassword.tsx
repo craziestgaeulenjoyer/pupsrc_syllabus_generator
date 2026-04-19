@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import { LockKeyhole, ArrowLeft, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
@@ -6,15 +6,20 @@ import { route } from 'ziggy-js';
 import { validateResetPassword } from '../Validation/CredentialValidation';
 import Alert from '../Validation/Alert';
 
-    const UpdatePassword = () => {
+    const UpdatePassword = ({ email }: { email: string }) => {
         const [showPassword, setShowPassword] = useState(false);
 
     const [formError, setFormError] = useState('');
     
     const { data, setData, post, processing, errors, reset } = useForm({
+        email: '',
         password: '',
         password_confirmation: '',
     });
+
+    useEffect(() => {
+        setData('email', email);
+    }, [email]);
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
