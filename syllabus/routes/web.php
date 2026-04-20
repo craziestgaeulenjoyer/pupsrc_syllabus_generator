@@ -24,8 +24,13 @@ Route::post('/forgot-password', [ForgotPasswordController::class, 'sendOtp'])->n
 
 // Verify OTP
 Route::get('/verify-otp', function () {
+
+    if (!session('otp_sent')) {
+        return redirect()->route('password.request');
+    }
+
     return Inertia::render('login_sections/VerifyOTP', [
-        'email' => request('email')
+        'email' => session('otp_email')
     ]);
 })->name('otp.form');
 
@@ -33,10 +38,16 @@ Route::post('/verify-otp', [ForgotPasswordController::class, 'verifyOtp'])->name
 
 // Resets Password
 Route::get('/reset-password', function () {
+
+    if (!session('otp_verified')) {
+        return redirect()->route('password.request');
+    }
+
     return Inertia::render('login_sections/UpdatePassword', [
-        'email' => request('email') 
+        'email' => session('otp_email')
     ]);
 })->name('password.reset.form');
+
 Route::post('/reset-password', [ForgotPasswordController::class, 'resetPassword'])->name('password.update');
 
 // Logout 

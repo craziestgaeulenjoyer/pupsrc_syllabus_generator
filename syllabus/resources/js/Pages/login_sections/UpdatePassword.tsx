@@ -18,7 +18,9 @@ import Alert from '../Validation/Alert';
     });
 
     useEffect(() => {
-        setData('email', email);
+        if (email) {
+            setData('email', email);
+        }
     }, [email]);
 
     const submit = (e: React.FormEvent) => {
@@ -29,7 +31,7 @@ import Alert from '../Validation/Alert';
             data.password_confirmation
         );
 
-        if (!result.isValid) {
+        if (!result.isValid || data.password.length < 6) {
             setFormError(result.message);
             return;
         }
@@ -47,11 +49,37 @@ import Alert from '../Validation/Alert';
 
         console.log("Updating password...");
     };
-    const alertMessage =
-    formError ||
-    errors.password ||
-    errors.password_confirmation ||
-    null;
+
+    const getPasswordStrength = (password: string) => {
+        if (!password) return { label: '', color: '', width: '0%' };
+
+        let score = 0;
+
+        if (password.length >= 6) score++;
+        if (/[a-z]/.test(password)) score++;
+        if (/[A-Z]/.test(password)) score++;
+        if (/[0-9]/.test(password)) score++;
+        if (/[^A-Za-z0-9]/.test(password)) score++;
+        if (password.length > 8) score++;
+
+        if (password.length < 6) {
+            return { label: 'Too Short', color: 'bg-red-500', width: '20%' };
+        }
+
+        if (score <= 3) {
+            return { label: 'Weak', color: 'bg-yellow-500', width: '40%' };
+        }
+
+        if (score <= 5) {
+            return { label: 'Normal', color: 'bg-blue-500', width: '70%' };
+        }
+
+        return { label: 'Strong', color: 'bg-green-600', width: '100%' };
+    };
+
+    const alertMessage = formError || errors.password || errors.password_confirmation || null;
+
+    const strength = getPasswordStrength(data.password);
 
     return (
         <div className="min-h-screen bg-[#F4F1E8] flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-poppins">
@@ -123,11 +151,26 @@ import Alert from '../Validation/Alert';
                                 required
                             />
                         </div>
+
+                        {/* Password Strength Bar */}
+                        <div className="mt-2">
+                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                    className={`h-full transition-all duration-300 ${strength.color}`}
+                                    style={{ width: strength.width }}
+                                />
+                            </div>
+                            {data.password && (
+                                <p className="text-[10px] mt-1 font-bold text-slate-500">
+                                    Strength: <span className="text-[#800000]">{strength.label}</span>
+                                </p>
+                            )}
+                        </div>
                     </div>
 
                     <button
                         type="submit"
-                        disabled={processing}
+                        disabled={processing || strength.label === 'Weak' || strength.label === 'Too Short'}
                         className="w-full bg-[#800000] text-[#F4F1E8] py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] shadow-[0_6px_0_#5a0000] active:shadow-none active:translate-y-1 transition-all duration-150 group overflow-hidden relative"
                     >
                         <span className="relative z-10">{processing ? 'Updating...' : 'Update Password'}</span>
