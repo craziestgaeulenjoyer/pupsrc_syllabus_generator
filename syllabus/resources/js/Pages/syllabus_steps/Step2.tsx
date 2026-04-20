@@ -142,7 +142,7 @@ const Step2 = () => {
                     <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
                         <h2 className="text-[10px] sm:text-xs font-bold text-[#800000] uppercase tracking-widest mb-1">Mapping Matrix</h2>
                         <h1 className="text-lg sm:text-2xl md:text-3xl font-black text-slate-800 leading-tight">
-                            Step 2 of 5: <span className="text-slate-600 font-bold">Map Learning Outcomes</span>
+                            Step 2 of 6: <span className="text-slate-600 font-bold">Map Learning Outcomes</span>
                         </h1>
                     </motion.div>
                     

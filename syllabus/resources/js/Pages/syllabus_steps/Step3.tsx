@@ -89,9 +89,24 @@ const Step3 = () => {
         if (obtlData.length > 1) setObtlData(obtlData.filter(row => row.id !== id));
     };
 
-    const validateAndNext = () => {
-        console.log("Proceeding to next step...");
-    };
+    const validateData = () => {
+    return obtlData.every(row => row.topics.trim() !== "");
+};
+
+const validateAndNext = () => {
+    const isValid = validateData(); 
+
+    if (isValid) {
+        setSuccessMessage("All fields completed successfully!");
+        console.log("Validation process completed.");
+
+        setTimeout(() => {
+            window.location.href = "/syllabus-generator/step-4";
+        }, 1000);
+    } else {
+        console.error("Validation failed: Please check your OBTL entries.");
+    }
+};
 
     const chunkData = (data: OBTLRow[], size: number) => {
         const chunks = [];
@@ -114,7 +129,7 @@ const Step3 = () => {
                     <div className="flex flex-col">
                         <span className="text-[#800000] font-bold text-[10px] md:text-sm tracking-widest uppercase mb-1">Learning Plan</span>
                         <h1 className="text-xl md:text-3xl font-black text-slate-800 flex flex-wrap items-center gap-2 md:gap-3">
-                            Step 3 of 5: <span className="text-slate-600 font-bold text-lg md:text-3xl"> Weekly OBTL Plan </span>
+                            Step 3 of 6: <span className="text-slate-600 font-bold text-lg md:text-3xl"> Weekly OBTL Plan </span>
                         </h1>
                     </div>
                     
@@ -250,11 +265,18 @@ const Step3 = () => {
                         <AlertCircle size={14} className="text-[#007BFF] shrink-0"/> Auto-saved to session.
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
-                        <Link href="/syllabus-generator/step-2" className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-[11px] md:text-sm border border-slate-200 transition-all">
-                            <ChevronLeft size={16} /> Back
-                        </Link>
-                        <button onClick={validateAndNext} className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-6 md:px-10 py-2.5 md:py-3 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-[11px] md:text-sm shadow-md active:scale-95 transition-all">
-                            Next: Grading System <ChevronRight size={16} />
+                        <Link
+                                href="/syllabus-generator/step-1"
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs sm:text-sm border border-slate-200 transition-all"
+                        >
+                                <ChevronLeft size={16} /> Back
+                                            </Link>
+
+                        <button
+                                onClick={validateAndNext}
+                                className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all"
+                        >
+                                Next: Grading System <ChevronRight size={16} />
                         </button>
                     </div>
                 </div>
@@ -342,6 +364,7 @@ const Step3 = () => {
                                                 </table>
                                             </div>
                                         </div>
+                                        {/* Bottom Labels  */}
                                         <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
                                             <div>
                                                     <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
@@ -368,3 +391,11 @@ const Step3 = () => {
 };
 
 export default Step3;
+
+function validateData() {
+    throw new Error('Function not implemented.');
+}
+function setSuccessMessage(arg0: string) {
+    throw new Error('Function not implemented.');
+}
+
