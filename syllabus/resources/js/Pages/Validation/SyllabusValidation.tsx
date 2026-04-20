@@ -2,11 +2,11 @@ export const validateStep1 = (data: any) => {
     const errors: Record<string, string> = {};
 
     if (!data.course_code) {
-        errors.course_code = "Course code is required.";
+        errors.course_code = "Enter course code e.g., COMP 001 ";
     }
 
     if (!data.course_title) {
-        errors.course_title = "Course title is required.";
+        errors.course_title = "Enter course title e.g., Introduction to Computing";
     }
 
     const isEmptyDescription =
@@ -16,7 +16,7 @@ export const validateStep1 = (data: any) => {
         data.course_description.replace(/<(.|\n)*?>/g, "").trim() === "";
 
     if (isEmptyDescription) {
-        errors.course_description = "Course description is required.";
+        errors.course_description = "Enter course description.";
     }
 
     return errors;
@@ -52,7 +52,7 @@ export const validateStep2 = (
     // ✅ PLO validation
     plos.forEach((plo, idx) => {
         if (!plo.label.trim()) {
-            errors[`plo_${idx}`] = "PLO description is required";
+            errors[`plo_${idx}`] = "Enter a PLO description";
         }
 
         const hasMapping = Object.keys(iloMapping).some(
@@ -66,7 +66,7 @@ export const validateStep2 = (
 
 clos.forEach((clo, idx) => {
     if (!clo.text.trim()) {
-        errors[`clo_${idx}`] = "CLO description is required";
+        errors[`clo_${idx}`] = "Enter a CLO description";
     }
 
     // ✅ Check if at least ONE PLO mapping exists in this row

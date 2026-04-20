@@ -7,6 +7,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import { CircleArrowDown, CircleArrowLeft, Files, FileText, Printer } from "lucide-react";
 
 export default function PdfViewer({ file }: any) {
   const [numPages, setNumPages] = useState<number | null>(null);
@@ -86,10 +87,10 @@ export default function PdfViewer({ file }: any) {
       <div className={`hidden lg:flex w-64 border-r flex-col shadow-sm transition-colors duration-300 ${isDarkMode ? "bg-[#1e1e1e] border-gray-800" : "bg-white border-gray-200"}`}>
         <div className={`h-16 flex items-center px-4 border-b shrink-0 ${isDarkMode ? "border-gray-800" : "border-gray-200"}`}>
           <div className="flex items-center gap-2">
-            <img 
-              src="https://img.icons8.com/?size=100&id=102445&format=png&color=000000" 
-              className={`w-4 h-4 ${isDarkMode ? "invert" : ""}`} 
-              alt="page icon" 
+            <Files
+              className={`w-4 h-4 stroke-current ${
+                isDarkMode ? "text-white" : "text-black"
+              }`}
             />
             <h2 className={`text-xs tracking-widest ${isDarkMode ? "text-gray-300" : "text-black"}`}>Page Previews</h2>
           </div>
@@ -124,10 +125,8 @@ export default function PdfViewer({ file }: any) {
             onClick={() => router.visit("/dashboard")} 
             className="flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-black group"
           >
-            <img 
-              src="https://img.icons8.com/?size=100&id=99287&format=png&color=737373" 
-              className="w-5 h-5 transition-all duration-300 group-hover:scale-110 group-hover:-rotate-180 group-hover:brightness-0" 
-              alt="back icon" 
+            <CircleArrowLeft
+              className="w-5 h-5 transition-all duration-300 stroke-current group-hover:scale-110 group-hover:-rotate-180 group-hover:text-black"
             />
             <span className="hidden sm:inline hover:text-[#800000]">Go Back</span>
           </button>
@@ -136,7 +135,9 @@ export default function PdfViewer({ file }: any) {
           </div>
           <button className={`px-4 py-1.5 rounded-full border text-sm font-bold shadow-sm flex items-center gap-2 transition-all ${isDarkMode ? "bg-white text-black border-white hover:bg-gray-200" : "bg-white text-[#800000] border-[#c7c7c7]/45 hover:bg-[#800000]/30 hover:text-white"}`}>
             <span className="hidden md:inline">Download</span>
-            <img src="https://img.icons8.com/?size=100&id=100211&format=png&color=800000" className={`w-5 h-5 ${isDarkMode ? "brightness-0" : ""}`} alt="download icon" />
+              <CircleArrowDown
+                className="w-5 h-5 stroke-current"
+              />
           </button>
         </header>
 
@@ -198,7 +199,7 @@ export default function PdfViewer({ file }: any) {
           </button>
           
           <button onClick={handlePrint} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 group">
-            <img src="https://img.icons8.com/?size=100&id=10338&format=png&color=000000" className="w-4 h-4 opacity-70 group-hover:opacity-100" alt="print icon" />
+            <Printer className="w-4 h-4 stroke-current" />
           </button>
         </div>
       </div>
@@ -207,10 +208,10 @@ export default function PdfViewer({ file }: any) {
       <div className={`hidden xl:flex w-72 border-l flex-col shadow-sm shrink-0 transition-colors duration-300 ${isDarkMode ? "bg-[#1e1e1e] border-gray-800" : "bg-white border-gray-200"}`}>
         <div className={`h-16 flex items-center px-6 border-b ${isDarkMode ? "border-gray-800" : "border-gray-200"}`}>
           <div className="flex items-center gap-2">
-            <img 
-              src="https://img.icons8.com/?size=100&id=78811&format=png&color=000000" 
-              className={`w-5 h-5 ${isDarkMode ? "invert" : ""}`} 
-              alt="document icon" 
+            <FileText
+              className={`w-5 h-5 stroke-current ${
+                isDarkMode ? "text-white" : "text-black"
+              }`}
             />
             <p className={`text-sm tracking-widest ${isDarkMode ? "text-gray-300" : "text-black"}`}>File Details</p>
           </div>

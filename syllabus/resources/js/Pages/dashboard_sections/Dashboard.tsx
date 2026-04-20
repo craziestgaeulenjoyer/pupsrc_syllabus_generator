@@ -8,6 +8,7 @@ import FileOptionsDropdown from '../modals_section/File_option';
 import RenameModal from '../modals_section/Rename';
 import PageSpacer from '../pagespacer_layout/PageSpacer';
 import DeleteModal from '../modals_section/DeleteConfirmation';
+import { ArrowUpDown, Ellipsis, Grid3x3, Search, SlidersHorizontal } from 'lucide-react';
 
 export default function Dashboard() {
     const [isGrid, setIsGrid] = useState(true);
@@ -139,10 +140,9 @@ return (
                                 group-focus-within:shadow-lg 
                                 group-focus-within:shadow-black/30"
                             >
-                                <img
-                                    src="https://img.icons8.com/?size=100&id=W0xu6u7K9A0F&format=png&color=737373"
-                                    className="w-4 h-4 transition-all duration-200 group-focus-within:brightness-0 group-focus-within:invert"
-                                />
+                            <Search
+                                className="w-4 h-4 text-gray-500 transition-all duration-200 group-focus-within:text-white"
+                            />
                             </div>
 
                             {/* INPUT */}
@@ -178,10 +178,7 @@ return (
 
                                     <span className="flex items-center gap-1">
                                         Grid
-                                        <img
-                                            src="https://img.icons8.com/?size=100&id=RbvvCrbVx1iK&format=png"
-                                            className="w-3 h-3"
-                                        />
+                                        <Grid3x3 color="#000000ae" size={12}/>
                                     </span>
                                 </div>
                             </div>
@@ -288,15 +285,7 @@ return (
                                     }
                                 `}
                             >
-                            <img
-                                src="https://img.icons8.com/?size=100&id=69881&format=png&color=4b5563"
-                                className="w-4 h-4"
-                                style={{
-                                    filter: (isSortOpen || isSortApplied)
-                                        ? "brightness(0) invert(1)"
-                                        : "none"
-                                }}
-                            />
+                            <ArrowUpDown className={`w-4 h-4 stroke-current ${(isSortOpen || isSortApplied) ? "text-white" : "text-gray-600"}`} />
                                 Sort By
                             </button>
 
@@ -311,14 +300,12 @@ return (
                                 }`
                             }
                             >
-                            <img
-                            src="https://img.icons8.com/?size=100&id=69913&format=png"
-                            className="w-4 h-4"
-                            style={{
-                                filter: (isFilterOpen || isFilterApplied)
-                                ? "brightness(0) invert(1)"
-                                : "none"
-                            }}
+                            <SlidersHorizontal
+                                className={`w-4 h-4 stroke-current ${
+                                    (isFilterOpen || isFilterApplied) // ✅ CORRECT
+                                        ? "text-white"
+                                        : "text-gray-600"
+                                }`}
                             />
                                 Filter
                             </button>
@@ -434,10 +421,7 @@ return (
                                             }}
                                         className="p-1 hover:bg-gray-100 rounded px-2"
                                     >
-                                        <img
-                                        src="https://img.icons8.com/?size=100&id=102729&format=png"
-                                        className="w-4 h-4"
-                                        />
+                                        <Ellipsis color="#000000"  className='w-5 h-5'/>
                                     </button>
 
                                     <FileOptionsDropdown

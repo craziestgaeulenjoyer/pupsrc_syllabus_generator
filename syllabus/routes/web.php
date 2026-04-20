@@ -1,32 +1,46 @@
 <?php
 
 use App\Http\Controllers\Authentication_Controllers\AuthController;
+use App\Http\Controllers\Authentication_Controllers\ForgotPasswordController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 /* ---------------- AUTHENTICATION ROUTES ---------------- */
 // GET route
 Route::get('/', function () {
+    return redirect()->route('login');
+});
+
+Route::get('/login', function () {
     return Inertia::render('login_sections/Login');
 })->name('login'); 
 
 // POST route
 Route::post('/login', [AuthController::class, 'login'])->name('login.attempt');
 
+// Forgot Password 
+Route::get('/forgot-password', fn() => Inertia::render('login_sections/ForgotPassword'))->name('password.request');
+Route::post('/forgot-password', [ForgotPasswordController::class, 'sendOtp'])->name('password.email');
+
+// Verify OTP
+Route::get('/verify-otp', function () {
+    return Inertia::render('login_sections/VerifyOTP', [
+        'email' => request('email')
+    ]);
+})->name('otp.form');
+
+Route::post('/verify-otp', [ForgotPasswordController::class, 'verifyOtp'])->name('otp.verify');
+
+// Resets Password
+Route::get('/reset-password', function () {
+    return Inertia::render('login_sections/UpdatePassword', [
+        'email' => request('email') 
+    ]);
+})->name('password.reset.form');
+Route::post('/reset-password', [ForgotPasswordController::class, 'resetPassword'])->name('password.update');
+
 // Logout 
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-
-/* ---------------- PASSWORD FLOW ---------------- */
-
-Route::get('/forgot-password', fn () => Inertia::render('login_sections/ForgotPassword'))
-    ->name('password.request');
-
-Route::get('/verify-access', fn () => Inertia::render('login_sections/VerifyOTP'))
-    ->name('password.verify');
-
-Route::get('/update-password', fn () => Inertia::render('login_sections/UpdatePassword'))
-    ->name('password.reset');
-
 
 /* ---------------- PROTECTED ROUTES ---------------- */
 
