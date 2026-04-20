@@ -68,14 +68,17 @@ Route::get('/syllabus-generator/step-1', function () {
 })->name('syllabus.step1');
 
 Route::post('/syllabus-generator/step-1', function () {
-    // temporary debug
+
+// Step 1
     return back()->with('success', 'Step 1 saved!');
 })->name('syllabus.step1.store');
 
+// Step 2
 Route::get('/syllabus-generator/step-2', function () {
     return Inertia::render('syllabus_steps/Step2');
 })->name('syllabus.step2');
 
+// Step 3
 Route::get('/syllabus-generator/step-3', function () {
     return Inertia::render('syllabus_steps/Step3');
 })->name('syllabus.step3');
@@ -83,6 +86,11 @@ Route::get('/syllabus-generator/step-3', function () {
 Route::post('/syllabus-generator/step-3', function () {
     return back()->with('success', 'Weekly Plan saved!');
 })->name('syllabus.step3.store');
+
+// Step 4
+Route::get('/syllabus-generator/step-4', function () {
+    return Inertia::render('syllabus_steps/Step4'); 
+})->name('syllabus.step4');
 
 /* ---------------- PDF VIEWER ROUTES ---------------- */
 Route::get('/viewer/{id}', function ($id) {
