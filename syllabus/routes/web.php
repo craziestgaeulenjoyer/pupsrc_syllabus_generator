@@ -16,7 +16,9 @@ Route::get('/login', function () {
 })->name('login'); 
 
 // POST route
-Route::post('/login', [AuthController::class, 'login'])->name('login.attempt');
+Route::post('/login', [AuthController::class, 'login'])
+    ->name('login.attempt')
+    ->middleware('throttle:5,1');
 
 // Forgot Password 
 Route::get('/forgot-password', fn() => Inertia::render('login_sections/ForgotPassword'))->name('password.request');
