@@ -37,6 +37,12 @@ const Login: React.FC = () => {
             if (diff <= 0) {
                 clearInterval(interval);
                 setLockTime(null);
+
+                setTimeout(() => {
+                    setFormError('');
+                    setAttemptsLeft(null);
+                }, 300);
+
                 return;
             }
 
@@ -63,28 +69,18 @@ const Login: React.FC = () => {
 
         router.post(route('login.attempt'), data, {
             onError: (errors: any) => {
+                // Always generic message
+                setFormError('Invalid credentials.');
 
-                const message = errors.email || errors.message || "Invalid professor credentials.";
-
-                // HANDLE LOCK MESSAGE
-                const lockMatch = message.match(/(\d+)\s*minute\(s\)\s*(\d+)\s*second\(s\)|(\d+)\s*second/);
-
-                if (message.toLowerCase().includes('account locked')) {
-                    setFormError(message);
-
-                    if (errors.lock_until) {
-                        startCountdown(errors.lock_until);
-                    }
-
+                // Handle lock
+                if (errors.lock_until) {
+                    startCountdown(errors.lock_until);
                     return;
                 }
 
-                // NORMAL LOGIN ERROR
-                setFormError(message);
-
-                const attemptMatch = message.match(/(\d+)\s*attempt/);
-                if (attemptMatch) {
-                    setAttemptsLeft(parseInt(attemptMatch[1]));
+                // Handle attempts left
+                if (errors.attempts_left !== undefined) {
+                    setAttemptsLeft(errors.attempts_left);
                 }
             },
 
@@ -99,6 +95,14 @@ const Login: React.FC = () => {
     };
 
     const isLocked = (lockTime ?? 0) > 0;
+
+    const displayMessage = formError
+    ? `${formError}${
+        !isLocked && attemptsLeft !== null
+            ? ` (${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} left)`
+            : ''
+      }`
+    : '';
 
     return (
         <div className="min-h-screen bg-[#F4F1E8] flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-poppins">
@@ -153,7 +157,13 @@ const Login: React.FC = () => {
                         </p>
                     </div>
 
-                    <Alert message={formError} />
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: displayMessage ? 1 : 0, y: displayMessage ? 0 : -10 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        <Alert message={displayMessage} />
+                    </motion.div>
 
                     <form 
                         onSubmit={submit} 
@@ -230,10 +240,14 @@ const Login: React.FC = () => {
                             }`}
                         >
                             <span className="relative z-10 flex items-center justify-center gap-2">
-                                {(loading || processing || isLocked) && (
+                                {(loading || processing) && (
                                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                                 )}
-                                {(loading || processing || isLocked) ? 'Verifying...' : 'Authorize Access'}
+                                {isLocked
+                                    ? 'Locked'
+                                    : (loading || processing)
+                                        ? 'Verifying...'
+                                        : 'Authorize Access'}
                             </span>
 
                             {!processing && (

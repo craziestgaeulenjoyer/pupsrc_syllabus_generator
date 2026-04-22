@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Authentication_Controllers;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -20,12 +21,45 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
+        $key = 'login_attempts_' . $credentials['email'];
+        $fakeLock = Cache::get($key . '_lock');
+
+        if ($fakeLock && now()->lt($fakeLock)) {
+            return back()->withErrors([
+                'email' => 'Invalid credentials.',
+                'lock_until' => $fakeLock->toISOString(),
+            ]);
+        }
+
         $user = Professor::where('email', $credentials['email'])->first();
 
         // USER NOT FOUND
         if (!$user) {
+            usleep(300000); // anti-timing
+
+            $key = 'login_attempts_' . $credentials['email'];
+
+            $attempts = Cache::get($key, 0) + 1;
+            Cache::put($key, $attempts, now()->addMinutes(5));
+
+            $maxAttempts = 3;
+            $attemptsLeft = max(0, $maxAttempts - $attempts);
+
+            // LOCK fake user too
+            if ($attempts >= $maxAttempts) {
+                $lockUntil = now()->addMinutes(1);
+
+                Cache::put($key . '_lock', $lockUntil, now()->addMinutes(1));
+
+                return back()->withErrors([
+                    'email' => 'Invalid credentials.',
+                    'lock_until' => $lockUntil->toISOString(),
+                ]);
+            }
+
             return back()->withErrors([
-                'email' => 'Invalid professor credentials.',
+                'email' => 'Invalid credentials.',
+                'attempts_left' => $attemptsLeft,
             ]);
         }
 
@@ -41,13 +75,15 @@ class AuthController extends Controller
                 : "{$seconds} second(s)";
 
             return back()->withErrors([
-                'email' => 'Account locked.',
+                'email' => 'Invalid credentials.',
                 'lock_until' => $user->lock_until->toISOString(),
             ]);
         }
 
         // ATTEMPT LOGIN
         if (Auth::attempt($credentials)) {
+            Cache::forget('login_attempts_' . $credentials['email']);
+            Cache::forget('login_attempts_' . $credentials['email'] . '_lock');
 
             // RESET attempts on success
             $user->update([
@@ -84,7 +120,7 @@ class AuthController extends Controller
                 : "{$seconds} second(s)";
 
             return back()->withErrors([
-                'email' => 'Account locked.',
+                'email' => 'Invalid credentials.',
                 'lock_until' => $user->lock_until->toISOString(),
             ]);
         }
@@ -92,7 +128,8 @@ class AuthController extends Controller
         $user->save();
 
         return back()->withErrors([
-            'email' => "Invalid credentials. {$attemptsLeft} attempt(s) left."
+            'email' => 'Invalid credentials.',
+            'attempts_left' => $attemptsLeft,
         ]);
     }
 
