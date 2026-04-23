@@ -16,7 +16,9 @@ Route::get('/login', function () {
 })->name('login'); 
 
 // POST route
-Route::post('/login', [AuthController::class, 'login'])->name('login.attempt');
+Route::post('/login', [AuthController::class, 'login'])
+    ->name('login.attempt')
+    ->middleware('throttle:5,1');
 
 // Forgot Password 
 Route::get('/forgot-password', fn() => Inertia::render('login_sections/ForgotPassword'))->name('password.request');
@@ -24,8 +26,13 @@ Route::post('/forgot-password', [ForgotPasswordController::class, 'sendOtp'])->n
 
 // Verify OTP
 Route::get('/verify-otp', function () {
+
+    if (!session('otp_sent')) {
+        return redirect()->route('password.request');
+    }
+
     return Inertia::render('login_sections/VerifyOTP', [
-        'email' => request('email')
+        'email' => session('otp_email')
     ]);
 })->name('otp.form');
 
@@ -33,10 +40,16 @@ Route::post('/verify-otp', [ForgotPasswordController::class, 'verifyOtp'])->name
 
 // Resets Password
 Route::get('/reset-password', function () {
+
+    if (!session('otp_verified')) {
+        return redirect()->route('password.request');
+    }
+
     return Inertia::render('login_sections/UpdatePassword', [
-        'email' => request('email') 
+        'email' => session('otp_email')
     ]);
 })->name('password.reset.form');
+
 Route::post('/reset-password', [ForgotPasswordController::class, 'resetPassword'])->name('password.update');
 
 // Logout 
@@ -57,14 +70,17 @@ Route::get('/syllabus-generator/step-1', function () {
 })->name('syllabus.step1');
 
 Route::post('/syllabus-generator/step-1', function () {
-    // temporary debug
+
+// Step 1
     return back()->with('success', 'Step 1 saved!');
 })->name('syllabus.step1.store');
 
+// Step 2
 Route::get('/syllabus-generator/step-2', function () {
     return Inertia::render('syllabus_steps/Step2');
 })->name('syllabus.step2');
 
+// Step 3
 Route::get('/syllabus-generator/step-3', function () {
     return Inertia::render('syllabus_steps/Step3');
 })->name('syllabus.step3');
@@ -72,6 +88,11 @@ Route::get('/syllabus-generator/step-3', function () {
 Route::post('/syllabus-generator/step-3', function () {
     return back()->with('success', 'Weekly Plan saved!');
 })->name('syllabus.step3.store');
+
+// Step 4
+Route::get('/syllabus-generator/step-4', function () {
+    return Inertia::render('syllabus_steps/Step4'); 
+})->name('syllabus.step4');
 
 /* ---------------- PDF VIEWER ROUTES ---------------- */
 Route::get('/viewer/{id}', function ($id) {

@@ -13,13 +13,11 @@ const Login: React.FC = () => {
         remember: false,
     });
 
-    const [clientErrors, setClientErrors] = useState({
-        email: '',
-        password: '',
-    });
     const [formError, setFormError] = useState('');
-
+    const [loading, setLoading] = useState(false);
     const [passwordVisible, setPasswordVisible] = useState(false);
+    const [lockTime, setLockTime] = useState<number | null>(null);
+    const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
 
     const safeRoute = (name: string) => {
         try {
@@ -29,36 +27,82 @@ const Login: React.FC = () => {
         }
     };
 
-    const submit = (e: React.FormEvent) => {
+    const startCountdown = (lockUntilISO: string) => {
+        const lockUntil = new Date(lockUntilISO).getTime();
+
+        const interval = setInterval(() => {
+            const now = new Date().getTime();
+            const diff = Math.max(0, Math.floor((lockUntil - now) / 1000));
+
+            if (diff <= 0) {
+                clearInterval(interval);
+                setLockTime(null);
+
+                setTimeout(() => {
+                    setFormError('');
+                    setAttemptsLeft(null);
+                }, 300);
+
+                return;
+            }
+
+            setLockTime(diff);
+        }, 1000);
+    };
+
+    const submit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         const result = validateLogin(data.email, data.password);
 
         if (!result.isValid) {
             setFormError(result.message);
-
-            //auto-hide error after 10 seconds
-            setTimeout(() => {
-                setFormError('');
-            }, 3000);
-
+            setTimeout(() => setFormError(''), 3000);
             return;
         }
 
         setFormError('');
+        setLoading(true); // START loading immediately
+
+        // fake delay
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         router.post(route('login.attempt'), data, {
-            onError: () => {
-                setFormError("Invalid professor credentials.");
+            onError: (errors: any) => {
+                // Always generic message
+                setFormError('Invalid credentials.');
 
-                //auto-hide backend error too
-                setTimeout(() => {
-                    setFormError('');
-                }, 3000);
+                // Handle lock
+                if (errors.lock_until) {
+                    startCountdown(errors.lock_until);
+                    return;
+                }
+
+                // Handle attempts left
+                if (errors.attempts_left !== undefined) {
+                    setAttemptsLeft(errors.attempts_left);
+                }
             },
 
+            onSuccess: () => {
+                setAttemptsLeft(null);
+            },
+
+            onFinish: () => {
+                setLoading(false);
+            }
         });
     };
+
+    const isLocked = (lockTime ?? 0) > 0;
+
+    const displayMessage = formError
+    ? `${formError}${
+        !isLocked && attemptsLeft !== null
+            ? ` (${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} left)`
+            : ''
+      }`
+    : '';
 
     return (
         <div className="min-h-screen bg-[#F4F1E8] flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-poppins">
@@ -113,8 +157,20 @@ const Login: React.FC = () => {
                         </p>
                     </div>
 
-                    <Alert message={formError} />
-                    <form onSubmit={submit} className="space-y-4 md:space-y-6" noValidate>
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: displayMessage ? 1 : 0, y: displayMessage ? 0 : -10 }}
+                        transition={{ duration: 0.3 }}
+                    >
+                        <Alert message={displayMessage} />
+                    </motion.div>
+
+                    <form 
+                        onSubmit={submit} 
+                        className={`space-y-4 md:space-y-6 transition-opacity ${
+                            (loading || processing) ? 'opacity-70' : ''
+                        }`}
+                    >
                         <div className="space-y-1.5">
                             <label className="text-[9px] md:text-[10px] font-black text-[#800000]/60 uppercase tracking-widest ml-1">Faculty Email</label>
                             <div className="relative group transition-all duration-300">
@@ -123,6 +179,7 @@ const Login: React.FC = () => {
                                 </div>
                                 <input
                                     type="email"
+                                    disabled={loading || processing || isLocked }
                                     value={data.email}
                                     onChange={e => setData('email', e.target.value)}
                                     className="w-full py-3.5 md:py-4 pl-11 pr-4 bg-white/50 border-b-2 border-transparent focus:border-[#800000] rounded-xl text-xs md:text-sm font-semibold text-slate-700 outline-none transition-all shadow-sm focus:shadow-md"
@@ -139,6 +196,7 @@ const Login: React.FC = () => {
                                 </div>
                                 <input
                                     type={passwordVisible ? 'text' : 'password'}
+                                    disabled={loading || processing || isLocked}
                                     value={data.password}
                                     onChange={e => setData('password', e.target.value)}
                                     className="w-full py-3.5 md:py-4 pl-11 pr-11 bg-white/50 border-b-2 border-transparent focus:border-[#800000] rounded-xl text-xs md:text-sm font-semibold text-slate-700 outline-none transition-all shadow-sm focus:shadow-md"
@@ -163,16 +221,40 @@ const Login: React.FC = () => {
                             </Link>
                         </div>
 
+                        {isLocked && lockTime && (
+                            <p className="text-sm text-red-600 font-semibold text-center">
+                                Account locked. Try again in {Math.floor(lockTime / 60)}m {lockTime % 60}s
+                            </p>
+                        )}
+
                         <button
                             type="submit"
-                            disabled={processing}
-                            className="w-full bg-[#800000] text-[#F4F1E8] py-3.5 md:py-4 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-[0.2em] shadow-[0_6px_0_#5a0000] active:shadow-none active:translate-y-1 transition-all duration-150 mt-2 group overflow-hidden relative"
+                            disabled={loading || processing || isLocked}
+                            className={`w-full py-3.5 md:py-4 rounded-xl font-black text-[10px] md:text-xs uppercase tracking-[0.2em] mt-2 relative overflow-hidden transition-all duration-200
+                            ${
+                                isLocked
+                                ? 'bg-gray-500 text-gray-300 cursor-not-allowed grayscale opacity-90'
+                                : loading || processing
+                                    ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-80'
+                                    : 'bg-[#800000] text-[#F4F1E8] shadow-[0_6px_0_#5a0000] active:shadow-none active:translate-y-1 group'
+                            }`}
                         >
-                            <span className="relative z-10">{processing ? 'Verifying...' : 'Authorize Access'}</span>
-                            <div className="absolute inset-0 bg-[#C19A26] translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-in-out"></div>
+                            <span className="relative z-10 flex items-center justify-center gap-2">
+                                {(loading || processing) && (
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                )}
+                                {isLocked
+                                    ? 'Locked'
+                                    : (loading || processing)
+                                        ? 'Verifying...'
+                                        : 'Authorize Access'}
+                            </span>
+
+                            {!processing && (
+                                <div className="absolute inset-0 bg-[#C19A26] translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-in-out"></div>
+                            )}
                         </button>
                     </form>
-
                     <div className="mt-8 md:mt-12 text-center border-t border-[#800000]/5 pt-6 md:pt-8">
                         <p className="text-[8px] md:text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em] leading-relaxed">
                             PUP Santa Rosa Campus <br/>

@@ -33,9 +33,13 @@ class ForgotPasswordController extends Controller {
                     ->subject('Password Reset OTP');
         });
 
-        return redirect()->route('otp.form', [
-            'email' => $request->email
+        // STORE SESSION FLAG
+        session([
+            'otp_email' => $request->email,
+            'otp_sent' => true
         ]);
+
+        return redirect()->route('otp.form');
     }
 
     public function verifyOtp(Request $request)
@@ -57,24 +61,28 @@ class ForgotPasswordController extends Controller {
             return back()->withErrors(['otp' => 'OTP expired']);
         }
 
-        return redirect()->route('password.reset.form', [
-            'email' => $request->email
+        // MARK OTP AS VERIFIED
+        session([
+            'otp_verified' => true,
+            'otp_email' => $request->email
         ]);
+
+        return redirect()->route('password.reset.form');
     }
 
     public function resetPassword(Request $request)
     {
-        \Log::info('🔐 Reset password request received', $request->all());
+        \Log::info('Reset password request received', $request->all());
 
         $request->validate([
             'email' => 'required|email',
             'password' => 'required|min:6|confirmed',
         ]);
 
-        $user = \App\Models\Professor::where('email', $request->email)->first();
+        $user = Professor::where('email', $request->email)->first();
 
         if (!$user) {
-            \Log::error('❌ User not found for email: ' . $request->email);
+            \Log::error('User not found for email: ' . $request->email);
             return back()->withErrors(['email' => 'User not found']);
         }
 
@@ -82,11 +90,13 @@ class ForgotPasswordController extends Controller {
             'password' => \Hash::make($request->password)
         ]);
 
-        \Log::info('✅ Password successfully updated for: ' . $request->email);
+        \Log::info('Password successfully updated for: ' . $request->email);
 
-        \App\Models\PasswordOtp::where('email', $request->email)->delete();
+        PasswordOtp::where('email', $request->email)->delete();
 
-        \Log::info('🧹 OTP deleted for: ' . $request->email);
+        \Log::info('OTP deleted for: ' . $request->email);
+
+        session()->forget(['otp_sent', 'otp_verified', 'otp_email']);
 
         return redirect()->route('login')->with('success', 'Password updated');
     }
