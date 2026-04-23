@@ -20,7 +20,6 @@ const Step2 = () => {
     const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
     const [showErrors, setShowErrors] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-    const [selectedPloId, setSelectedPloId] = useState<number | null>(null);
     const [selectedDelete, setSelectedDelete] = useState<{ type: "plo" | "clo"; id: number | null; } | null>(null);
     
 
@@ -266,7 +265,7 @@ const Step2 = () => {
                                             <td className="p-2 text-center">
                                                 <button 
                                                     onClick={() => {
-                                                        setSelectedPloId(plo.id);
+                                                        setSelectedDelete({ type: "plo", id: plo.id });
                                                         setDeleteModalOpen(true);
                                                     }}
                                                     className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-full md:opacity-0 group-hover:opacity-100 transition-all"
@@ -276,20 +275,6 @@ const Step2 = () => {
                                             </td>
                                         </tr>
                                     ))}
-                                    <DeleteModal
-                                        open={deleteModalOpen}
-                                        onClose={() => {
-                                            setDeleteModalOpen(false);
-                                            setSelectedPloId(null);
-                                        }}
-                                        onConfirm={() => {
-                                            if (selectedPloId !== null) {
-                                                removePloRow(selectedPloId);
-                                            }
-                                            setDeleteModalOpen(false);
-                                            setSelectedPloId(null);
-                                        }}
-                                    />
                                 </tbody>
                             </table>
                         </div>
@@ -394,28 +379,29 @@ const Step2 = () => {
                                             </td>
                                         </tr>
                                     ))}
-                                    <DeleteModal
-                                        open={deleteModalOpen}
-                                        onClose={() => {
-                                            setDeleteModalOpen(false);
-                                            setSelectedDelete(null);
-                                        }}
-                                        onConfirm={() => {
-                                            if (!selectedDelete || selectedDelete.id === null) return;
-
-                                            if (selectedDelete.type === "plo") {
-                                                removePloRow(selectedDelete.id);
-                                            }
-
-                                            if (selectedDelete.type === "clo") {
-                                                removeCloRow(selectedDelete.id);
-                                            }
-
-                                            setDeleteModalOpen(false);
-                                            setSelectedDelete(null);
-                                        }}
-                                    />
+                                    
                                 </tbody>
+                                <DeleteModal
+                                    open={deleteModalOpen}
+                                    onClose={() => {
+                                        setDeleteModalOpen(false);
+                                        setSelectedDelete(null);
+                                    }}
+                                    onConfirm={() => {
+                                        if (!selectedDelete || selectedDelete.id === null) return;
+
+                                        if (selectedDelete.type === "plo") {
+                                            removePloRow(selectedDelete.id);
+                                        }
+
+                                        if (selectedDelete.type === "clo") {
+                                            removeCloRow(selectedDelete.id);
+                                        }
+
+                                        setDeleteModalOpen(false);
+                                        setSelectedDelete(null);
+                                    }}
+                                />
                             </table>
                         </div>
                     </motion.div>
