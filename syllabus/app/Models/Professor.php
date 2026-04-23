@@ -14,10 +14,16 @@ class Professor extends Authenticatable
         'name',
         'email',
         'password',
+        'login_attempts',
+        'lock_until',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+    ];
+
+    protected $casts = [
+        'lock_until' => 'datetime',
     ];
 }

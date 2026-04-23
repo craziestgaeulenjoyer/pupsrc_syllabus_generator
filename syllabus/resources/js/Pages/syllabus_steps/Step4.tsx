@@ -6,6 +6,7 @@ import {
     Info, FileDown, Plus, Trash2, Layout, Link as LinkIcon, Edit3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import DeleteModal from '../modals_section/DeleteConfirmation';
 
 // --- Interfaces ---
 interface SubItem {
@@ -23,6 +24,29 @@ interface GradingComponent {
 const Step4 = () => {
     const [showPreview, setShowPreview] = useState(false);
     const [f2fLink, setF2fLink] = useState('');
+    const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    type: 'requirement' | 'component';
+    id: string | null;
+    }>({
+        open: false,
+        type: 'requirement',
+        id: null,
+    });
+
+    const handleConfirmDelete = () => {
+        if (!deleteModal.id) return;
+
+        if (deleteModal.type === 'requirement') {
+            setRequirements(prev => prev.filter(r => r.id !== deleteModal.id));
+        }
+
+        if (deleteModal.type === 'component') {
+            setGradingComponents(prev => prev.filter(c => c.id !== deleteModal.id));
+        }
+
+        setDeleteModal({ open: false, type: 'requirement', id: null });
+    };
     
     // Grading System State
     const [gradingComponents, setGradingComponents] = useState<GradingComponent[]>([
@@ -228,7 +252,13 @@ const Step4 = () => {
                                 {requirements.map((req) => (
                                     <div key={req.id} className="relative p-6 border border-slate-200 rounded-lg bg-slate-50/50">
                                         <button 
-                                            onClick={() => setRequirements(requirements.filter(r => r.id !== req.id))} 
+                                            onClick={() =>
+                                                        setDeleteModal({
+                                                            open: true,
+                                                            type: 'requirement',
+                                                            id: req.id,
+                                                        })
+                                                    } 
                                             className="absolute top-2 right-2 text-slate-400 hover:text-[#800000] transition-colors"
                                         >
                                             <Trash2 size={14}/>
@@ -303,7 +333,13 @@ const Step4 = () => {
                                         </div>
                                         
                                         <button 
-                                            onClick={() => removeGradingComponent(comp.id)}
+                                                onClick={() =>
+                                                                setDeleteModal({
+                                                                    open: true,
+                                                                    type: 'component',
+                                                                    id: comp.id,
+                                                                })
+                                                            }
                                             className="mt-3 w-full py-1 text-[9px] text-slate-400 hover:text-red-500 uppercase font-medium flex items-center justify-center gap-1"
                                         >
                                             <Trash2 size={10}/> Remove Component
@@ -321,6 +357,13 @@ const Step4 = () => {
                         </div>
                     </div>
                 </div>
+                <DeleteModal
+                        open={deleteModal.open}
+                        onClose={() =>
+                            setDeleteModal({ open: false, type: 'requirement', id: null })
+                        }
+                        onConfirm={handleConfirmDelete}
+                    />
             </main>
 
             {/* FOOTER */}
@@ -479,7 +522,7 @@ const Step4 = () => {
                                                                     <div key={comp.id} className="flex justify-between items-start text-[7.5pt] md:text-[8.5pt] border-b border-dotted border-slate-300 pb-2">
                                                                         <div>
                                                                             <p className="font-bold">{comp.label}</p>
-                                                                            <p className="text-[6.5pt] md:text-[7pt] text-slate-500">{comp.subItems.map(s => s.label).join(', ')}</p>
+                                                                            <p className="text-[6.5pt] md:text-[7pt] text-slate-500">{comp.subItems.map(s => s.label).join('')}</p>
                                                                         </div>
                                                                         <p className="font-bold">{comp.percentage}%</p>
                                                                     </div>

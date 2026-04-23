@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, usePage, router } from '@inertiajs/react';
 import LogoutConfirmationModal from '../modals_section/LogoutConfirmation';
+import { FolderClosed, FolderOpenDot, LogOut, Table2 } from 'lucide-react';
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -28,13 +29,15 @@ const Navbar = () => {
   };
 
   const NavLink = ({ 
-    iconUrl, 
+    icon,
+    activeIcon, 
     label, 
     index, 
     href, 
     onClick 
   }: { 
-    iconUrl: string, 
+    icon: React.ReactNode, 
+    activeIcon?: React.ReactNode,
     label: string, 
     index: number, 
     href: string, 
@@ -64,12 +67,12 @@ const Navbar = () => {
               : "text-slate-700 border-transparent hover:bg-slate-50 hover:border-[#800000]/30"
             }`}
         >
-          <img 
-            src={iconUrl} 
-            alt={label} 
+          <div  
             className={`w-5 h-5 transition-opacity duration-200 
               ${isActive ? "opacity-100" : "opacity-60 group-hover:opacity-100"}`}
-          />
+          >
+            {isActive && activeIcon ? activeIcon : icon}
+          </div>
           <span className="text-md">{label}</span>
 
           {isActive && (
@@ -150,14 +153,16 @@ const Navbar = () => {
                   <NavLink 
                     index={1}
                     href="/dashboard" 
-                    iconUrl="https://img.icons8.com/?size=100&id=CtZUCg7B7fpp&format=png&color=800000" 
+                    icon={<FolderClosed />}
+                    activeIcon={<FolderOpenDot />}
                     label="Dashboard" 
                     onClick={() => setIsOpen(false)}
                   />
                   <NavLink 
                     index={2}
                     href={safeRoute('syllabus.step1')} 
-                    iconUrl="https://img.icons8.com/?size=100&id=79276&format=png&color=800000" 
+                    icon={<Table2 />}
+                    activeIcon={<Table2 />}
                     label="Syllabus Generator" 
                     onClick={() => setIsOpen(false)}
                   />
@@ -169,11 +174,7 @@ const Navbar = () => {
                 onClick={() => setShowLogoutModal(true)}
                 className="flex items-center justify-center gap-3 py-5 text-white transition-all font-bold text-md tracking-wider border-t border-white/10 uppercase hover:bg-black/20 active:bg-black/30 outline-none w-full text-center"
               >
-                <img
-                  src="https://img.icons8.com/?size=20&id=59781&format=png&color=FFFFFF"
-                  alt="logout"
-                  className="w-5 h-5"
-                />
+                <LogOut className="w-5 h-5" />
                 Log Out
               </button>
               </div>
