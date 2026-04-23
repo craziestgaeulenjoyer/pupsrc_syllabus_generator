@@ -3,9 +3,11 @@ import { Head, Link } from '@inertiajs/react';
 import Navbar from '../navbar_layouts/Navbar'; 
 import { 
     ChevronLeft, ChevronRight, X, FileText, AlertCircle,
-    Info, FileDown, Plus, Trash2, Layers, CheckCircle2
+    Info, FileDown, Plus, Trash2, Layers, BookMarked, TriangleAlert, CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import DeleteModal from '../modals_section/DeleteConfirmation';
+import Alert from '../Validation/Alert';
 
 interface OBTLRow {
     id: number;
@@ -61,6 +63,83 @@ const Step3 = () => {
     const [obtlData, setObtlData] = useState<OBTLRow[]>([]);
     const [showDraftSaved, setShowDraftSaved] = useState(false);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [references, setReferences] = useState([
+    { id: 1, text: '' }
+    ]);
+    const [otherReferences, setOtherReferences] = useState([
+    { id: 1, text: '' }
+    ]);
+
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [selectedDelete, setSelectedDelete] = useState<{
+        type: 'reference' | 'otherReference' | 'row' | null;
+        id: number | null;
+    }>({ type: null, id: null });
+
+    const [alert, setAlert] = useState<{
+        message: string | null;
+        type: 'error' | 'success';
+    }>({
+        message: null,
+        type: 'error'
+    });
+    
+    const validateStep = () => {
+        const midterms = obtlData.filter(r => r.type === 'midterm');
+        const finals = obtlData.filter(r => r.type === 'final');
+
+        if (midterms.length > 1 || finals.length > 1) {
+            setAlert({
+                message: 'Only ONE Midterm and ONE Final are allowed.',
+                type: 'error'
+            });
+            return false;
+        }
+
+        if (midterms.length === 0 && finals.length === 0) {
+            setAlert({
+                message: 'You must add either Midterm or Final examination rows.',
+                type: 'error'
+            });
+            return false;
+        }
+
+        return true;
+    };
+    const handleNext = () => {
+        if (!validateStep()) return;
+
+        window.location.href = "/syllabus-generator/step-4";
+    };
+
+    useEffect(() => {
+        const midterms = obtlData.filter(r => r.type === 'midterm');
+        const finals = obtlData.filter(r => r.type === 'final');
+
+        // ignore empty state (so no spam message)
+        if (midterms.length === 0 && finals.length === 0) {
+            setAlert({ message: null, type: 'success' });
+            return;
+        }
+
+        // valid state
+        if (midterms.length <= 1 && finals.length <= 1) {
+            setAlert({
+                message: 'Midterm/Final section is properly set.',
+                type: 'success'
+            });
+        }
+    }, [obtlData]);
+
+    useEffect(() => {
+        if (!alert.message) return;
+
+        const timer = setTimeout(() => {
+            setAlert({ message: null, type: 'error' });
+        }, 3000); // ⬅️ duration in milliseconds (3 seconds)
+
+        return () => clearTimeout(timer);
+    }, [alert.message]);
 
     const handleCellChange = (id: number, field: string, value: string) => {
         setObtlData(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
@@ -87,28 +166,64 @@ const Step3 = () => {
         setObtlData([...obtlData, newRow]);
     };
 
-    const removeRow = (id: number) => {
-        if (obtlData.length > 1) setObtlData(obtlData.filter(row => row.id !== id));
+    const addReference = () => {
+        const newId =
+            references.length > 0
+                ? Math.max(...references.map(r => r.id)) + 1
+                : 1;
+
+        setReferences([...references, { id: newId, text: '' }]);
     };
 
-    const validateData = () => {
-        return obtlData.every(row => row.topics.trim() !== "");
+    const updateReference = (id: number, value: string) => {
+        setReferences(prev =>
+            prev.map(ref =>
+                ref.id === id ? { ...ref, text: value } : ref
+            )
+        );
     };
 
-    const validateAndNext = () => {
-        const isValid = validateData(); 
+    const addOtherReference = () => {
+        const newId =
+            otherReferences.length > 0
+                ? Math.max(...otherReferences.map(r => r.id)) + 1
+                : 1;
 
-        if (isValid) {
-            setSuccessMessage("All fields completed successfully!");
-            console.log("Validation process completed.");
+        setOtherReferences([...otherReferences, { id: newId, text: '' }]);
+    };
 
-            setTimeout(() => {
-                window.location.href = "/syllabus-generator/step-4";
-            }, 1000);
-        } else {
-            console.error("Validation failed: Please check your OBTL entries.");
+    const updateOtherReference = (id: number, value: string) => {
+        setOtherReferences(prev =>
+            prev.map(ref =>
+                ref.id === id ? { ...ref, text: value } : ref
+            )
+        );
+    };
+
+    const openDeleteModal = (type: 'reference' | 'otherReference' | 'row', id: number) => {
+        setSelectedDelete({ type, id });
+        setDeleteModalOpen(true);
+        };
+
+    const confirmDelete = () => {
+        if (!selectedDelete.id) return;
+
+        if (selectedDelete.type === 'reference') {
+            setReferences(prev => prev.filter(r => r.id !== selectedDelete.id));
         }
+
+        if (selectedDelete.type === 'otherReference') {
+            setOtherReferences(prev => prev.filter(r => r.id !== selectedDelete.id));
+        }
+
+        if (selectedDelete.type === 'row') {
+            setObtlData(prev => prev.filter(r => r.id !== selectedDelete.id));
+        }
+
+        setDeleteModalOpen(false);
+        setSelectedDelete({ type: null, id: null });
     };
+
 
     const chunkData = (data: OBTLRow[], size: number) => {
         const chunks = [];
@@ -176,6 +291,32 @@ const Step3 = () => {
                         <span className="font-bold text-slate-900">Instructions:</span> Complete the 18-week plan by mapping outcomes and topics. Use the Add buttons for exams. All fields are required.
                     </p>
                 </div>
+                {/* ERROR / SUCCESS MESSAGE (UNDER INSTRUCTIONS) */}
+                {alert.message && (
+                    <div
+                        className={`mb-8 border-l-4 p-4 rounded-r-xl shadow-sm flex items-start gap-3 ${
+                            alert.type === 'error'
+                                ? 'bg-red-50 border-red-600'
+                                : 'bg-green-50 border-green-600'
+                        }`}
+                    >
+                        <TriangleAlert
+                            className={`mt-0.5 shrink-0 ${
+                                alert.type === 'error' ? 'text-red-600' : 'text-green-600'
+                            }`}
+                            size={20}
+                        />
+
+                        <p
+                            className={`text-[11px] md:text-sm font-medium ${
+                                alert.type === 'error' ? 'text-red-700' : 'text-green-700'
+                            }`}
+                        >
+                            <span className="font-bold">Warning:</span>{' '}
+                            {alert.message}
+                        </p>
+                    </div>
+                )}
 
                 {/* Table Container */}
                 <div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden mb-10">
@@ -233,7 +374,7 @@ const Step3 = () => {
                                             </td>
                                         )}
                                         <td className="p-4 text-center">
-                                            <button onClick={() => removeRow(row.id)} className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg">
+                                            <button  onClick={() => openDeleteModal('row', row.id)} className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg">
                                                 <Trash2 size={16}/>
                                             </button>
                                         </td>
@@ -253,7 +394,7 @@ const Step3 = () => {
                                         </div>
                                         {row.type !== 'regular' && <span className="font-bold text-amber-800 text-[10px] uppercase">Examination Period</span>}
                                     </div>
-                                    <button onClick={() => removeRow(row.id)} className="text-red-400 p-2"><Trash2 size={16}/></button>
+                                    <button  onClick={() => openDeleteModal('row', row.id)} className="text-red-400 p-2"><Trash2 size={16}/></button>
                                 </div>
 
                                 {row.type === 'regular' ? (
@@ -282,13 +423,128 @@ const Step3 = () => {
                         <Plus size={18}/> ADD WEEKLY LEARNING PLAN
                     </button>
                 </div>
+
+                {/* REFERENCES SECTION*/}
+                <div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden mb-10">
+
+                    {/* HEADER */}
+                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                        <h2 className="font-bold text-slate-700 text-xs md:text-base flex items-center gap-2">
+                            <BookMarked size={16} className="text-[#800000] w-5 h-5"/>
+                            REFERENCES
+                        </h2>
+                    </div>
+
+                    {/* SUBTITLE */}
+                    <div className="p-4 border-b border-slate-200 text-[10px] md:text-xs font-bold uppercase text-slate-400 leading-relaxed">
+                        REFERENCES FROM THE NINOY AQUINO LEARNING AND LIBRARY RESOURCES CENTER (NALLRC)
+                        <br />
+                        OUTCOMES-BASED BOOK LISTINGS (CBBL)
+                    </div>
+
+                    {/* MAIN REFERENCES */}
+                    <div className="p-3 bg-white">
+                        <div className="flex justify-end items-center mb-2">
+                            <button
+                                onClick={addReference}
+                                className="bg-[#800000] hover:bg-[#600000] text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1"
+                            >
+                                <Plus size={14}/> Add
+                            </button>
+                        </div>
+
+                        <table className="w-full border-collapse">
+                            <tbody className="divide-y divide-slate-200">
+                                {references.map((ref) => (
+                                    <tr key={ref.id}>
+                                        <td className="p-2 w-full">
+                                            <textarea
+                                                value={ref.text}
+                                                onChange={(e) => updateReference(ref.id, e.target.value)}
+                                                placeholder="Enter reference..."
+                                                className="w-full text-[11px] p-2 border border-slate-200 rounded-md resize-none"
+                                                rows={2}
+                                            />
+                                        </td>
+
+                                        <td className="p-2 text-center w-12">
+                                            <button
+                                                onClick={() => openDeleteModal('reference', ref.id)}
+                                                className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                                            >
+                                                <Trash2 size={16}/>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* OTHER REFERENCES */}
+                    <div className="p-3 border-t border-slate-200 bg-white">
+
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-bold text-slate-600 uppercase">
+                                Other References
+                            </span>
+
+                            <button
+                                onClick={addOtherReference}
+                                className="bg-[#800000] hover:bg-[#600000] text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1"
+                            >
+                                <Plus size={14}/> Add
+                            </button>
+                        </div>
+
+                        <table className="w-full border-collapse">
+                            <tbody className="divide-y divide-slate-200">
+                                {otherReferences.map((ref) => (
+                                    <tr key={ref.id}>
+                                        <td className="p-2 w-full">
+                                            <textarea
+                                                value={ref.text}
+                                                onChange={(e) => updateOtherReference(ref.id, e.target.value)}
+                                                placeholder="Enter other reference..."
+                                                className="w-full text-[11px] p-2 border border-slate-200 rounded-md resize-none"
+                                                rows={2}
+                                            />
+                                        </td>
+
+                                        <td className="p-2 text-center w-12">
+                                            <button
+                                                onClick={() => openDeleteModal('otherReference', ref.id)}
+                                                className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                                            >
+                                                <Trash2 size={16}/>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div>
             </main>
 
             {/* FOOTER */}
             <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 sm:p-4 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
                 <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
-                    <div className="hidden sm:flex items-center gap-2 text-xs font-medium px-4 py-1.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                        <AlertCircle size={14} className="text-[#007BFF] shrink-0"/> Auto-saved to session.
+                    {/* LEFT SIDE */}
+                    <div className="flex flex-col items-start gap-2">
+                        
+                        {/* Auto-save indicator */}
+                        <div className="hidden sm:flex items-center gap-2 text-xs font-medium px-4 py-1.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            <AlertCircle size={14} className="text-[#007BFF] shrink-0"/> 
+                            Auto-saved to session.
+                        </div>
+
+                        {/* ERROR MESSAGE BELOW IT */}
+                        <div className="hidden sm:block w-full">
+                            <Alert message={alert.message} type={alert.type} />
+                        </div>
+
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
                         <Link
@@ -299,7 +555,7 @@ const Step3 = () => {
                                             </Link>
 
                         <button
-                                onClick={validateAndNext}
+                                onClick={handleNext}
                                 className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all"
                         >
                                 Next: Grading System <ChevronRight size={16} />
@@ -389,6 +645,65 @@ const Step3 = () => {
                                                     </tbody>
                                                 </table>
                                             </div>
+                                       {/* ✅ REFERENCES ATTACHED TO TABLE */}
+                                        <div className="w-full mt-3 text-[8pt]">
+
+                                            <table className="w-full border border-black border-collapse">
+
+                                                <tbody>
+
+                                                    {/* HEADER */}
+                                                    <tr>
+                                                        <td className="p-2 font-bold uppercase">
+                                                            REFERENCES FROM THE NINOY AQUINO LEARNING AND LIBRARY RESOURCES CENTER (NALLRC)
+                                                            <br />
+                                                            OUTCOMES-BASED BOOK LISTINGS (CBBL)
+                                                        </td>
+                                                    </tr>
+
+                                                    {/* MAIN REFERENCES */}
+                                                    <tr>
+                                                        <td className="p-2">
+                                                            {references
+                                                                .filter(ref => ref.text.trim() !== "")
+                                                                .map((ref) => (
+                                                                    <p key={ref.id} className="mb-1">
+                                                                        {ref.text}
+                                                                    </p>
+                                                                ))}
+                                                        </td>
+                                                    </tr>
+
+                                                    {/* OTHER REFERENCES LABEL */}
+                                                    <tr>
+                                                        <td className="p-2 font-bold uppercase">
+                                                            OTHER REFERENCES
+                                                        </td>
+                                                    </tr>
+
+                                                    {/* OTHER REFERENCES CONTENT (NEW) */}
+                                                    <tr>
+                                                        <td className="p-2">
+                                                            {otherReferences
+                                                                .filter(ref => ref.text.trim() !== "")
+                                                                .map((ref) => (
+                                                                    <p key={ref.id} className="mb-1">
+                                                                        {ref.text}
+                                                                    </p>
+                                                                ))}
+                                                        </td>
+                                                    </tr>
+
+                                                    {/* EMPTY SPACE */}
+                                                    <tr>
+                                                        <td className="p-3 min-h-[40px]">
+                                                            &nbsp;
+                                                        </td>
+                                                    </tr>
+
+                                                </tbody>
+                                            </table>
+                                        </div>
                                         </div>
                                         {/* Bottom Labels  */}
                                         <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
@@ -428,6 +743,11 @@ const Step3 = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+            <DeleteModal
+                open={deleteModalOpen}
+                onClose={() => setDeleteModalOpen(false)}
+                onConfirm={confirmDelete}
+            />
         </div>
     );
 };
