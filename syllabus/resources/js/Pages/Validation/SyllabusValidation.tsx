@@ -88,3 +88,101 @@ clos.forEach((clo, idx) => {
 });
     return errors;
 };
+
+interface ValidationResult {
+    isValid: boolean;
+    message?: string;
+    errors?: Record<string, string>;
+}
+
+export const validateStep5 = (data: any): ValidationResult => {
+    const {
+        classInfo = {},
+        facultyInfo = {},
+        signatories = []
+    } = data;
+
+    const errors: Record<string, string> = {};
+
+    // --- CLASS INFO ---
+    if (!classInfo.section?.trim()) {
+        errors.section = "Enter a section";
+    }
+
+    if (!classInfo.semester?.trim()) {
+        errors.semester = "Enter a Semester and Academic Year";
+    }
+
+    if (!classInfo.time?.trim()) {
+        errors.time = "Enter a class time";
+    }
+
+    if (!classInfo.room?.trim()) {
+        errors.room = "Enter a room number";
+    }
+
+    // --- FACULTY INFO ---
+    if (!facultyInfo.name?.trim()) {
+        errors.name = "Enter a faculty name";
+    }
+
+    if (!facultyInfo.consultation?.trim()) {
+        errors.consultation = "Enter a consultation time";
+    }
+
+    if (!facultyInfo.contact?.trim()) {
+        errors.contact = "Enter a contact number";
+    } else {
+        const contact = facultyInfo.contact.replace(/\D/g, '');
+        if (contact.length !== 11) {
+            errors.contact = "Contact number must be exactly 11 digits.";
+        }
+    }
+
+    if (!facultyInfo.email?.trim()) {
+        errors.email = "Enter an email address";
+    } else {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(facultyInfo.email)) {
+            errors.email = "Invalid email format.";
+        }
+    }
+
+    // --- SIGNATORIES VALIDATION ---
+    if (!signatories.length) {
+        errors.signatories = "At least one signatory is required.";
+    } else {
+        signatories.forEach((sig: any) => {
+
+              if (!sig.role?.trim()) {
+                errors[`signatory_role_${sig.id}`] = "Enter a role";
+            }
+
+            // NAME (required)
+            if (!sig.name?.trim()) {
+                errors[`signatory_name_${sig.id}`] = "Enter a name";
+            }
+
+            // TITLE (required)
+            if (!sig.title?.trim()) {
+                errors[`signatory_title_${sig.id}`] = "Enter a position";
+            }
+
+            // ROLE = optional (no validation)
+            // SIGNATURE = optional (no validation)
+        });
+    }
+
+    // --- FINAL RESPONSE ---
+    if (Object.keys(errors).length > 0) {
+        return {
+            isValid: false,
+            message: "Please fix the errors before proceeding.",
+            errors
+        };
+    }
+
+    return {
+        isValid: true
+    };
+};
