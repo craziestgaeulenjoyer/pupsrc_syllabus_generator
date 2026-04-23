@@ -17,20 +17,27 @@ import { router } from '@inertiajs/react';
 import { validateStep1 } from '../Validation/SyllabusValidation';
 import { validateCourse } from '../Validation/SyllabusValidation';
 import Alert from '../Validation/Alert';
+import DOMPurify from 'dompurify';
 
 const Step1 = () => {
     const [showPreview, setShowPreview] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
     const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
+
+    const savedData = localStorage.getItem('syllabus_step1');
     
-    const { data, setData, post, processing, errors } = useForm({
-        course_code: '',
-        course_credit: 3,
-        course_title: '',
-        pre_requisites: '',
-        co_requisites: '',  
-        course_description: '',
-    });
+    const { data, setData, post, processing, errors } = useForm (
+        savedData
+            ? JSON.parse(savedData)
+            : {
+                course_code: '',
+                course_credit: 3,
+                course_title: '',
+                pre_requisites: '',
+                co_requisites: '',  
+                course_description: '',
+            }
+    );
 
     const modules = {
         toolbar: [
@@ -82,35 +89,10 @@ const Step1 = () => {
     const handlePreviewOpen = () => {
     const validationErrors = validateStep1(data);
 
-    if (Object.keys(validationErrors).length > 0) {
-        setLocalErrors(validationErrors);
-
-        setAlertMessage("Please complete all required fields before preview.");
-        setAlertType("error");
-
-        setTimeout(() => {
-            setAlertMessage(null);
-            setLocalErrors({});
-        }, 3000);
-
-        return;
-    }
-
-    // If valid → open preview
-    setShowPreview(true);
-};
-
-    const submit = (e: { preventDefault: () => void }) => {
-        e.preventDefault();
-
-        const validationErrors = validateStep1(data);
-
-        setAlertMessage(null);
-
         if (Object.keys(validationErrors).length > 0) {
             setLocalErrors(validationErrors);
 
-            setAlertMessage("Please complete all required fields.");
+            setAlertMessage("Please complete all required fields before preview.");
             setAlertType("error");
 
             setTimeout(() => {
@@ -121,8 +103,42 @@ const Step1 = () => {
             return;
         }
 
+        // If valid → open preview
+        setShowPreview(true);
+    };
+
+    const handleCancel = () => {
+        const confirmCancel = window.confirm(
+            "Are you sure you want to cancel? All progress will be lost."
+        );
+
+        if (!confirmCancel) return;
+
+        localStorage.removeItem('syllabus_step1');
+        router.visit(route('dashboard'));
+    };
+
+    const submit = (e: React.FormEvent) => {
+        e.preventDefault();
+
+        const validationErrors = validateStep1(data);
+
+        if (Object.keys(validationErrors).length > 0) {
+            setLocalErrors(validationErrors);
+            setAlertMessage("Please complete all required fields.");
+            setAlertType("error");
+            return;
+        }
+
+        // ensure latest data saved
+        localStorage.setItem('syllabus_step1', JSON.stringify(data));
+
         router.visit(route('syllabus.step2'));
     };
+
+    useEffect(() => {
+        localStorage.setItem('syllabus_step1', JSON.stringify(data));
+    }, [data]);
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] font-poppins selection:bg-[#800000]/20 pb-32">
@@ -375,7 +391,14 @@ const Step1 = () => {
                                             <tr>
                                                 <td colSpan={6} className="value-cell text-justify leading-relaxed py-4">
                                                     <span className="font-bold uppercase block mb-1">Course Description</span>
-                                                    <div className="italic wrap-break-word" dangerouslySetInnerHTML={{ __html: data.course_description || 'No description provided.' }}></div>
+                                                    <div
+                                                        className="italic wrap-break-word"
+                                                        dangerouslySetInnerHTML={{
+                                                            __html: DOMPurify.sanitize(
+                                                                data.course_description || 'No description provided.'
+                                                            ),
+                                                        }}
+                                                    />
                                                 </td>
                                             </tr>
                                             <tr>
@@ -458,8 +481,17 @@ const Step1 = () => {
                         <Alert message={alertMessage} type={alertType} />
                     </div>
 
-                    {/* BUTTON (RIGHT SIDE) */}
-                    <div className="md:ml-auto w-full md:w-auto">
+                    <div className="md:ml-auto w-full md:w-auto flex gap-2">
+                        {/* CANCEL BUTTON */}
+                        <button
+                            type="button"
+                            onClick={handleCancel}
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-gray-300 text-gray-700 rounded-xl font-bold text-xs sm:text-sm hover:bg-gray-400 transition-all active:scale-95"
+                        >
+                            Cancel
+                        </button>
+
+                        {/* NEXT BUTTON */}
                         <button
                             form="step1-form"
                             type="submit"
@@ -468,6 +500,7 @@ const Step1 = () => {
                         >
                             Next: Map Learning Outcomes <ChevronRight size={20}/>
                         </button>
+
                     </div>
                 </div>
             </div>

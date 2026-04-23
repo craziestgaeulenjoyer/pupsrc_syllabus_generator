@@ -236,7 +236,7 @@ const Login: React.FC = () => {
                                 ? 'bg-gray-500 text-gray-300 cursor-not-allowed grayscale opacity-90'
                                 : loading || processing
                                     ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-80'
-                                    : 'bg-[#800000] text-[#F4F1E8] shadow-[0_6px_0_#5a0000] active:shadow-none active:translate-y-1 group'
+                                    : 'bg-[#800000] text-[#F4F1E8] shadow-[0_6px_0_#5a0000] active:shadow-none active:translate-y-1 group cursor-pointer'
                             }`}
                         >
                             <span className="relative z-10 flex items-center justify-center gap-2">
