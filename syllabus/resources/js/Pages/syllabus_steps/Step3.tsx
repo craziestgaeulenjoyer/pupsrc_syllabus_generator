@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Head, Link } from '@inertiajs/react';
 import Navbar from '../navbar_layouts/Navbar'; 
 import { 
     ChevronLeft, ChevronRight, X, FileText, AlertCircle,
-    Info, FileDown, Plus, Trash2, Layers
+    Info, FileDown, Plus, Trash2, Layers, CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -58,7 +58,9 @@ const TableCell: React.FC<TableCellProps> = ({ id, field, value, placeholder, on
 
 const Step3 = () => {
     const [showPreview, setShowPreview] = useState(false);
-    const [obtlData, setObtlData] = useState<OBTLRow[]>(initialWeeklyData);
+    const [obtlData, setObtlData] = useState<OBTLRow[]>([]);
+    const [showDraftSaved, setShowDraftSaved] = useState(false);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
     const handleCellChange = (id: number, field: string, value: string) => {
         setObtlData(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
@@ -90,23 +92,23 @@ const Step3 = () => {
     };
 
     const validateData = () => {
-    return obtlData.every(row => row.topics.trim() !== "");
-};
+        return obtlData.every(row => row.topics.trim() !== "");
+    };
 
-const validateAndNext = () => {
-    const isValid = validateData(); 
+    const validateAndNext = () => {
+        const isValid = validateData(); 
 
-    if (isValid) {
-        setSuccessMessage("All fields completed successfully!");
-        console.log("Validation process completed.");
+        if (isValid) {
+            setSuccessMessage("All fields completed successfully!");
+            console.log("Validation process completed.");
 
-        setTimeout(() => {
-            window.location.href = "/syllabus-generator/step-4";
-        }, 1000);
-    } else {
-        console.error("Validation failed: Please check your OBTL entries.");
-    }
-};
+            setTimeout(() => {
+                window.location.href = "/syllabus-generator/step-4";
+            }, 1000);
+        } else {
+            console.error("Validation failed: Please check your OBTL entries.");
+        }
+    };
 
     const chunkData = (data: OBTLRow[], size: number) => {
         const chunks = [];
@@ -117,6 +119,30 @@ const validateAndNext = () => {
     };
 
     const paginatedData = chunkData(obtlData, 6);
+
+    useEffect(() => {
+        const saved = localStorage.getItem("syllabus_step3");
+
+        if (saved) {
+            setObtlData(JSON.parse(saved));
+        } else {
+            setObtlData(initialWeeklyData);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (obtlData.length === 0) return;
+
+        localStorage.setItem("syllabus_step3", JSON.stringify(obtlData));
+
+        setShowDraftSaved(true);
+
+        const timer = setTimeout(() => {
+            setShowDraftSaved(false);
+        }, 1500);
+
+        return () => clearTimeout(timer);
+    }, [obtlData]);
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] flex flex-col font-sans pb-40">
@@ -386,16 +412,25 @@ const validateAndNext = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <AnimatePresence>
+                {showDraftSaved && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 40 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 40 }}
+                        className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50"
+                    >
+                        <div className="bg-green-600 text-white px-6 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm font-bold">
+                            <CheckCircle2 size={18} />
+                            Draft saved
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };
 
 export default Step3;
-
-function validateData() {
-    throw new Error('Function not implemented.');
-}
-function setSuccessMessage(arg0: string) {
-    throw new Error('Function not implemented.');
-}
 
