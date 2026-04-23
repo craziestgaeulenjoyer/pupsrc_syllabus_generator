@@ -10,6 +10,7 @@
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",
+        "@types/canvas-confetti": "^1.9.0",
         "@types/node": "^25.5.2",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
@@ -26,6 +27,7 @@
     },
     "dependencies": {
         "@inertiajs/react": "^3.0.3",
+        "canvas-confetti": "^1.9.4",
         "framer-motion": "^12.38.0",
         "lucide-react": "^1.8.0",
         "react": "^19.2.4",

@@ -81,6 +81,20 @@ Route::get('/syllabus-generator/step-4', function () {
     return Inertia::render('syllabus_steps/Step4'); 
 })->name('syllabus.step4');
 
+// Step 5 
+Route::get('/syllabus-generator/step-5', function () {
+    return Inertia::render('syllabus_steps/Step5'); 
+})->name('syllabus.step5');
+
+Route::post('/syllabus-generator/step-5', function () {
+    return back()->with('success', 'Syllabus successfully generated and saved!');
+})->name('syllabus.step5.store');
+
+// Step 6 
+Route::get('/syllabus-generator/step-6', function () {
+    return Inertia::render('syllabus_steps/Step6'); 
+})->name('syllabus.step6');
+
 /* ---------------- PDF VIEWER ROUTES ---------------- */
 Route::get('/viewer/{id}', function ($id) {
     $file = [
