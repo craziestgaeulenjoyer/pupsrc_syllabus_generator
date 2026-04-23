@@ -1,4 +1,4 @@
-import { XCircle } from 'lucide-react';
+import { CircleX, CircleCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AlertProps {
@@ -23,14 +23,11 @@ export default function Alert({ message, type = 'error' }: AlertProps) {
                             : "bg-green-100 text-green-700"
                         }`}
                 >
-                    <img 
-                        src={isError
-                            ? "https://img.icons8.com/?size=100&id=fYgQxDaH069W&format=png&color=000000"
-                            : "https://img.icons8.com/?size=100&id=AefXIkx4A693&format=png&color=000000"
-                        } 
-                        alt="status" 
-                        className="w-5 h-5" 
-                    />
+                    {isError ? (
+                        <CircleX className="w-5 h-5 text-red-600" />
+                    ) : (
+                        <CircleCheck className="w-5 h-5 text-green-600" />
+                    )}
                     <span className="text-xs font-medium">{message}</span>
                 </motion.div>
             )}
