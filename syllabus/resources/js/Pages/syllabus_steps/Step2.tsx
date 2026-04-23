@@ -21,7 +21,7 @@ const Step2 = () => {
     const [showErrors, setShowErrors] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [selectedDelete, setSelectedDelete] = useState<{ type: "plo" | "clo"; id: number | null; } | null>(null);
-    
+    const [showDraftModal, setShowDraftModal] = useState(false);
 
     // Dynamic columns count
     const iloCount = 9;
@@ -129,6 +129,38 @@ const Step2 = () => {
             setSuccessMessage(null);
         }
 
+    }, [plos, clos, iloMapping, ploMapping]);
+
+    useEffect(() => {
+        const saved = localStorage.getItem('syllabus_step2');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+
+            setPlos(parsed.plos || plos);
+            setClos(parsed.clos || clos);
+            setIloMapping(parsed.iloMapping || {});
+            setPloMapping(parsed.ploMapping || {});
+        }
+    }, []);
+
+    useEffect(() => {
+        const dataToSave = {
+            plos,
+            clos,
+            iloMapping,
+            ploMapping,
+        };
+
+        localStorage.setItem('syllabus_step2', JSON.stringify(dataToSave));
+
+        // show modal
+        setShowDraftModal(true);
+
+        const timer = setTimeout(() => {
+            setShowDraftModal(false);
+        }, 1200);
+
+        return () => clearTimeout(timer);
     }, [plos, clos, iloMapping, ploMapping]);
 
     return (
@@ -529,6 +561,22 @@ const Step2 = () => {
                                 </div>
                             </div>
                         </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {showDraftModal && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 20 }}
+                        className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50"
+                    >
+                        <div className="bg-green-600 text-white px-6 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm font-bold">
+                            <CheckCircle2 size={18} />
+                            Draft saved
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>

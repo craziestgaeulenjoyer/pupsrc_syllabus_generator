@@ -23,6 +23,8 @@ const Step1 = () => {
     const [showPreview, setShowPreview] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
     const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
+    const [showCancelModal, setShowCancelModal] = useState(false);
+    const [showSaveToast, setShowSaveToast] = useState(false);
 
     const savedData = localStorage.getItem('syllabus_step1');
     
@@ -108,14 +110,16 @@ const Step1 = () => {
     };
 
     const handleCancel = () => {
-        const confirmCancel = window.confirm(
-            "Are you sure you want to cancel? All progress will be lost."
-        );
+        setShowCancelModal(true);
+    };
 
-        if (!confirmCancel) return;
-
+    const confirmCancel = () => {
         localStorage.removeItem('syllabus_step1');
         router.visit(route('dashboard'));
+    };
+
+    const closeCancelModal = () => {
+        setShowCancelModal(false);
     };
 
     const submit = (e: React.FormEvent) => {
@@ -137,7 +141,18 @@ const Step1 = () => {
     };
 
     useEffect(() => {
-        localStorage.setItem('syllabus_step1', JSON.stringify(data));
+        const timeout = setTimeout(() => {
+            localStorage.setItem('syllabus_step1', JSON.stringify(data));
+
+            // show toast
+            setShowSaveToast(true);
+
+            // hide after 2s
+            setTimeout(() => setShowSaveToast(false), 2000);
+
+        }, 800); 
+
+        return () => clearTimeout(timeout);
     }, [data]);
 
     return (
@@ -300,9 +315,9 @@ const Step1 = () => {
                         <div className="bg-white p-5 md:p-7 rounded-3xl shadow-sm border border-slate-200 flex flex-col min-h-87.5">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-5 gap-2">
                                 <h3 className="text-slate-900 font-extrabold text-lg">Course Description</h3>
-                                <button type="button" onClick={handleSaveDescription} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${isSaved ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600 hover:bg-[#800000] hover:text-white'}`}>
+                                {/* <button type="button" onClick={handleSaveDescription} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${isSaved ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600 hover:bg-[#800000] hover:text-white'}`}>
                                     <Save size={14} /> {isSaved ? 'Saved!' : 'Save Progress'}
-                                </button>
+                                </button> */}
                             </div>
                             <div className="flex-1">
                                 <div
@@ -472,6 +487,63 @@ const Step1 = () => {
                 )}
             </AnimatePresence>
 
+            <AnimatePresence>
+                {showCancelModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="bg-white rounded-2xl shadow-2xl p-6 w-[90%] max-w-md text-center"
+                        >
+                            <h2 className="text-lg font-bold text-slate-900 mb-2">
+                                Cancel Syllabus Creation?
+                            </h2>
+
+                            <p className="text-sm text-slate-600 mb-6">
+                                All your progress will be lost. This action cannot be undone.
+                            </p>
+
+                            <div className="flex justify-center gap-3">
+                                <button
+                                    onClick={closeCancelModal}
+                                    className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300"
+                                >
+                                    No, go back
+                                </button>
+
+                                <button
+                                    onClick={confirmCancel}
+                                    className="px-4 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700"
+                                >
+                                    Yes, cancel
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {showSaveToast && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 20 }}
+                        className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[300]
+                                bg-green-600 text-white px-5 py-2.5 rounded-xl 
+                                shadow-xl text-sm font-semibold"
+                    >
+                        Draft saved!
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Bottom Action Bar */}
             <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 sm:p-4 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
                 <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
@@ -485,8 +557,11 @@ const Step1 = () => {
                         {/* CANCEL BUTTON */}
                         <button
                             type="button"
-                            onClick={handleCancel}
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-gray-300 text-gray-700 rounded-xl font-bold text-xs sm:text-sm hover:bg-gray-400 transition-all active:scale-95"
+                            onClick={() => {
+                                setShowPreview(false);
+                                setShowCancelModal(true);
+                            }}
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-gray-300 text-gray-700 rounded-xl font-bold text-xs sm:text-sm hover:bg-gray-400 cursor-pointer transition-all active:scale-95"
                         >
                             Cancel
                         </button>
@@ -496,7 +571,7 @@ const Step1 = () => {
                             form="step1-form"
                             type="submit"
                             disabled={processing}
-                            className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all"
+                            className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] cursor-pointer text-xs sm:text-sm shadow-md active:scale-95 transition-all"
                         >
                             Next: Map Learning Outcomes <ChevronRight size={20}/>
                         </button>
