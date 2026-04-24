@@ -114,7 +114,10 @@ const Step1 = () => {
     };
 
     const confirmCancel = () => {
-        localStorage.removeItem('syllabus_step1');
+        for (let i = 1; i <= 6; i++) {
+            localStorage.removeItem(`syllabus_step${i}`);
+        }
+
         router.visit(route('dashboard'));
     };
 
@@ -218,12 +221,14 @@ const Step1 = () => {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                     <div>
                         <h2 className="text-[#800000] font-bold text-[10px] md:text-sm uppercase tracking-widest mb-1">Module: Academic Development</h2>
-                        <h1 className="text-xl md:text-3xl font-black text-slate-900 tracking-tight">Step 1: Course Overview & Description</h1>
+                        <h1 className="text-xl md:text-3xl font-black text-slate-900 tracking-tight">
+                            Step 1 of 6: <span className="text-slate-600 font-bold">Course Overview & Description</span>
+                        </h1>
                     </div>
                     <button 
                         type="button"
                         onClick={handlePreviewOpen}
-                        className="bg-[#800000] text-white px-4 md:px-6 py-3 rounded-xl font-bold text-xs md:text-sm shadow-xl hover:shadow-2xl hover:bg-[#600000] transition-all flex items-center justify-center gap-2 w-full md:w-fit active:scale-95"
+                        className="bg-[#800000] text-white px-4 md:px-6 py-3 rounded-xl font-bold text-xs md:text-sm shadow-xl cursor-pointer hover:shadow-2xl hover:bg-[#600000] transition-all flex items-center justify-center gap-2 w-full md:w-fit active:scale-95"
                     >
                         <FileDown size={18} />
                         View Live PDF Preview

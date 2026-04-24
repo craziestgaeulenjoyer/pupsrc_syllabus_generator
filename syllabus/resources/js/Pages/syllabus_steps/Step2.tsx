@@ -179,9 +179,10 @@ const Step2 = () => {
                     
                     <button 
                         onClick={handlePreviewOpen}
-                        className="flex items-center justify-center gap-2 bg-[#800000] text-white px-4 py-2.5 rounded-lg font-bold shadow-lg hover:bg-[#600000] transition-all text-xs sm:text-sm active:scale-95 w-full sm:w-auto"
+                        className="flex items-center justify-center gap-2 bg-[#800000] text-white px-4 py-2.5 rounded-lg cursor-pointer font-bold shadow-lg hover:bg-[#600000] transition-all text-xs sm:text-sm active:scale-95 w-full sm:w-auto"
                     >
-                        <FileDown size={18} /> View Live PDF Preview
+                        <FileDown size={18} /> 
+                        View Live PDF Preview
                     </button>
                 </div>
 
@@ -222,7 +223,7 @@ const Step2 = () => {
                             </div>
                             <button 
                                 onClick={addPloRow} 
-                                className="flex items-center justify-center gap-2 bg-[#800000] text-white px-4 py-2 rounded-lg text-[10px] sm:text-xs font-bold hover:bg-[#600000] transition-all w-full sm:w-auto active:scale-95"
+                                className="flex items-center justify-center gap-2 bg-[#800000] text-white px-4 py-2 rounded-lg cursor-pointer text-[10px] sm:text-xs font-bold hover:bg-[#600000] transition-all w-full sm:w-auto active:scale-95"
                             >
                                 <Plus size={14}/> ADD NEW PLO
                             </button>
@@ -608,7 +609,7 @@ const Step2 = () => {
 
                         <button
                             onClick={validateAndNext}
-                            className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all"
+                            className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] cursor-pointer text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all"
                         >
                             Next: Weekly Plan <ChevronRight size={16} />
                         </button>

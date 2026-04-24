@@ -1,13 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Head, Link } from '@inertiajs/react';
 import Navbar from '../navbar_layouts/Navbar'; 
+
+import { motion, AnimatePresence } from 'framer-motion';
+import DeleteModal from '../modals_section/DeleteConfirmation';
+import Alert from '../Validation/Alert';
+
+import {
+    DndContext,
+    closestCenter,
+    PointerSensor,
+    useSensor,
+    useSensors
+} from '@dnd-kit/core';
+
+import {
+    arrayMove,
+    SortableContext,
+    useSortable,
+    verticalListSortingStrategy
+} from '@dnd-kit/sortable';
+
+import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
+
+import { CSS } from '@dnd-kit/utilities';
+
 import { 
     ChevronLeft, ChevronRight, X, FileText, AlertCircle,
     Info, FileDown, Plus, Trash2, Layers, BookMarked, TriangleAlert, CheckCircle2
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import DeleteModal from '../modals_section/DeleteConfirmation';
-import Alert from '../Validation/Alert';
+
 
 interface OBTLRow {
     id: number;
@@ -20,6 +42,18 @@ interface OBTLRow {
     deliverySync: string;
     deliveryAsync: string;
     tasks: string;
+}
+
+interface TableCellProps {
+    id: number;
+    field: string;
+    value: string;
+    placeholder: string;
+    onChange: (id: number, field: string, value: string) => void;
+    isDelivery?: boolean;
+    bgColor?: string;
+    label?: string;
+    readOnly?: boolean;
 }
 
 const initialWeeklyData: OBTLRow[] = [
@@ -37,22 +71,37 @@ const initialWeeklyData: OBTLRow[] = [
     }
 ];
 
-interface TableCellProps {
-    id: number; field: string; value: string; placeholder: string;
-    onChange: (id: number, field: string, value: string) => void;
-    isDelivery?: boolean; bgColor?: string; label?: string;
-}
-
 // Optimized Cell
-const TableCell: React.FC<TableCellProps> = ({ id, field, value, placeholder, onChange, isDelivery = false, bgColor = "", label }) => {
+const TableCell: React.FC<TableCellProps> = ({
+    id,
+    field,
+    value,
+    placeholder,
+    onChange,
+    isDelivery = false,
+    bgColor = "",
+    label,
+    readOnly = false,
+}) => {
     return (
         <div className="flex flex-col w-full">
             {label && <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 md:hidden">{label}</label>}
-            <textarea 
-                value={value} rows={3} placeholder={placeholder}
+            <textarea
+                value={value}
+                readOnly={readOnly}
+                placeholder={placeholder}
                 onChange={(e) => onChange(id, field, e.target.value)}
-                className={`w-full text-[11px] p-2 bg-transparent border-0 md:border-r border-slate-200 focus:ring-1 focus:ring-[#800000] focus:bg-white focus:rounded-md resize-none scrollbar-thin ${isDelivery ? bgColor : ''} ${value === '' ? 'italic text-slate-400' : 'text-slate-700'}`}
-                style={{ minHeight: '80px' }}
+                className={`
+                    w-full text-[11px] p-2 bg-transparent border-0 md:border-r border-slate-200
+                    focus:ring-1 focus:ring-[#800000] focus:bg-white focus:rounded-md
+                    resize-none overflow-hidden
+                    whitespace-pre-wrap break-words
+                    leading-relaxed
+                    min-h-[60px]
+                    ${isDelivery ? bgColor : ''} 
+                    ${value === '' ? 'italic text-slate-400' : 'text-slate-700'}
+                    ${readOnly ? 'cursor-not-allowed bg-slate-100' : ''}
+                `}
             />
         </div>
     );
@@ -62,7 +111,11 @@ const Step3 = () => {
     const [showPreview, setShowPreview] = useState(false);
     const [obtlData, setObtlData] = useState<OBTLRow[]>([]);
     const [showDraftSaved, setShowDraftSaved] = useState(false);
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [examLimitMessage, setExamLimitMessage] = useState<string | null>(null);
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+
+    const containerRef = useRef<HTMLDivElement | null>(null);
+
     const [references, setReferences] = useState([
     { id: 1, text: '' }
     ]);
@@ -70,7 +123,9 @@ const Step3 = () => {
     { id: 1, text: '' }
     ]);
 
-    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const hasMidterm = obtlData.some(r => r.type === 'midterm');
+    const hasFinal = obtlData.some(r => r.type === 'final');
+
     const [selectedDelete, setSelectedDelete] = useState<{
         type: 'reference' | 'otherReference' | 'row' | null;
         id: number | null;
@@ -88,6 +143,8 @@ const Step3 = () => {
         const midterms = obtlData.filter(r => r.type === 'midterm');
         const finals = obtlData.filter(r => r.type === 'final');
 
+        const totalWeeks = obtlData.length;
+
         if (midterms.length > 1 || finals.length > 1) {
             setAlert({
                 message: 'Only ONE Midterm and ONE Final are allowed.',
@@ -104,66 +161,139 @@ const Step3 = () => {
             return false;
         }
 
+        if (totalWeeks !== 18) {
+            setAlert({
+                message: `You must have exactly 18 total rows (including exams). Currently: ${totalWeeks}.`,
+                type: 'error'
+            });
+            return false;
+        }
+
+        const allRows = obtlData;
+
+        // check empty fields INCLUDING exams
+        for (const row of allRows) {
+            if (row.type === 'regular') {
+                if (!row.dlo || !row.clo || !row.topics || !row.tasks) {
+                    setAlert({
+                        message: 'All fields in weekly rows must be filled.',
+                        type: 'error'
+                    });
+                    return false;
+                }
+            } else {
+                // exam validation
+                if (!row.topics) {
+                    setAlert({
+                        message: 'Exam rows must have a label.',
+                        type: 'error'
+                    });
+                    return false;
+                }
+            }
+        }
+
+        if (!checkExamOrder()) return false;
+
+        const arranged = sortByWeek(reindexWeeks(enforceExamOrder(obtlData)));
+
+        if (JSON.stringify(arranged) !== JSON.stringify(obtlData)) {
+            setObtlData(arranged);
+        }
+
         return true;
     };
+
     const handleNext = () => {
         if (!validateStep()) return;
 
+        // FINAL CLEANUP BEFORE STEP 4
+        const arranged = sortByWeek(
+            reindexWeeks(
+                enforceExamOrder(obtlData)
+            )
+        );
+
+        setObtlData(arranged);
+
+        // OPTIONAL: save clean version
+        localStorage.setItem("syllabus_step3", JSON.stringify(arranged));
+
         window.location.href = "/syllabus-generator/step-4";
     };
-
-    useEffect(() => {
-        const midterms = obtlData.filter(r => r.type === 'midterm');
-        const finals = obtlData.filter(r => r.type === 'final');
-
-        // ignore empty state (so no spam message)
-        if (midterms.length === 0 && finals.length === 0) {
-            setAlert({ message: null, type: 'success' });
-            return;
-        }
-
-        // valid state
-        if (midterms.length <= 1 && finals.length <= 1) {
-            setAlert({
-                message: 'Midterm/Final section is properly set.',
-                type: 'success'
-            });
-        }
-    }, [obtlData]);
 
     useEffect(() => {
         if (!alert.message) return;
 
         const timer = setTimeout(() => {
             setAlert({ message: null, type: 'error' });
-        }, 3000); // ⬅️ duration in milliseconds (3 seconds)
+        }, 3000); // duration in milliseconds (3 seconds)
 
         return () => clearTimeout(timer);
     }, [alert.message]);
 
     const handleCellChange = (id: number, field: string, value: string) => {
-        setObtlData(prev => prev.map(row => row.id === id ? { ...row, [field]: value } : row));
+        setObtlData(prev =>
+            prev.map(row =>
+                row.id === id
+                    ? { ...row, [field]: value }
+                    : row
+            )
+        );
     };
 
     const addRow = (type: 'regular' | 'midterm' | 'final' = 'regular') => {
-        const lastRow = [...obtlData].reverse().find(r => r.type === 'regular');
-        let nextWeek = "";
-        
-        if (type === 'regular' && lastRow) {
-            const lastWeekNum = parseInt(lastRow.weeks.split('-').pop() || "0");
-            nextWeek = isNaN(lastWeekNum) ? "" : (lastWeekNum + 1).toString();
+        if (obtlData.length >= 18) {
+            setAlert({
+                message: 'You already have 18 weeks (including exams). You cannot add more.',
+                type: 'error'
+            });
+            return;
+        }
+
+        if (type === 'midterm' && hasMidterm) {
+            setExamLimitMessage('No more midterm row can be added. If you wish to add more, delete the previous midterm row.');
+            return;
+        }
+
+        if (type === 'final' && hasFinal) {
+            setExamLimitMessage('No more final row can be added. If you wish to add more, delete the previous final row.');
+            return;
+        }
+
+        const regularCount = obtlData.filter(r => r.type === 'regular').length;
+
+        if (type === 'regular' && regularCount >= 16) {
+            setAlert({
+                message: 'Maximum of 16 regular weeks reached (Week 9 and 18 are reserved for exams).',
+                type: 'error'
+            });
+            return;
         }
 
         const newRow: OBTLRow = {
             id: Date.now(),
             type,
-            weeks: type === 'midterm' ? '' : type === 'final' ? '' : nextWeek,
+            weeks: '', // always empty initially
             dlo: type !== 'regular' ? 'Examination Period' : '',
             clo: '',
-            topics: type === 'midterm' ? 'MIDTERM EXAMINATION' : type === 'final' ? 'FINAL EXAMINATION' : '',
-            deliveryFace: '', deliverySync: '', deliveryAsync: '', tasks: ''
+            topics:
+                type === 'midterm'
+                    ? 'MIDTERM EXAMINATION'
+                    : type === 'final'
+                    ? 'FINAL EXAMINATION'
+                    : '',
+            deliveryFace: '',
+            deliverySync: '',
+            deliveryAsync: '',
+            tasks: ''
         };
-        setObtlData([...obtlData, newRow]);
+
+        setObtlData(prev => {
+            const updated = enforceExamOrder([...prev, newRow]);
+            const reindexed = reindexWeeks(updated);
+            return sortByWeek(reindexed);
+        });
     };
 
     const addReference = () => {
@@ -217,7 +347,10 @@ const Step3 = () => {
         }
 
         if (selectedDelete.type === 'row') {
-            setObtlData(prev => prev.filter(r => r.id !== selectedDelete.id));
+            setObtlData(prev => {
+                const updated = enforceExamOrder(prev.filter(r => r.id !== selectedDelete.id));
+                return reindexWeeks(updated);
+            });
         }
 
         setDeleteModalOpen(false);
@@ -233,7 +366,127 @@ const Step3 = () => {
         return chunks;
     };
 
+    const checkExamOrder = () => {
+        const midtermIndex = obtlData.findIndex(r => r.type === 'midterm');
+        const finalIndex = obtlData.findIndex(r => r.type === 'final');
+
+        // Only validate if BOTH exist
+        if (midtermIndex !== -1 && finalIndex !== -1) {
+            if (finalIndex < midtermIndex) {
+                setAlert({
+                    message: 'Midterm Examination row should be above the Final Examination row.',
+                    type: 'error'
+                });
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const enforceExamOrder = (data: OBTLRow[]) => {
+        const midtermIndex = data.findIndex(r => r.type === 'midterm');
+        const finalIndex = data.findIndex(r => r.type === 'final');
+
+        if (midtermIndex !== -1 && finalIndex !== -1 && finalIndex < midtermIndex) {
+            const updated = [...data];
+            const [finalRow] = updated.splice(finalIndex, 1);
+            updated.splice(midtermIndex + 1, 0, finalRow); // move final BELOW midterm
+            return updated;
+        }
+
+        return data;
+    };
+
     const paginatedData = chunkData(obtlData, 6);
+
+    const SortableRow = ({ row, children }: any) => {
+        const {
+            attributes,
+            listeners,
+            setNodeRef,
+            transform,
+            transition
+        } = useSortable({ id: row.id });
+
+        const style = {
+            transform: CSS.Transform.toString(transform),
+            transition
+        };
+
+        return (
+            <tr
+                ref={setNodeRef}
+                style={style}
+            >
+                {children({ attributes, listeners })}
+            </tr>
+        );
+    };
+
+    const sensors = useSensors(
+        useSensor(PointerSensor)
+    );
+
+    const handleDragEnd = (event: any) => {
+        const { active, over } = event;
+
+        if (!over || active.id === over.id) return;
+
+        setObtlData((items) => {
+            const oldIndex = items.findIndex(i => i.id === active.id);
+            const newIndex = items.findIndex(i => i.id === over.id);
+
+            const updated = arrayMove(items, oldIndex, newIndex);
+
+            const ordered = enforceExamOrder(updated);
+            return reindexWeeks(ordered);
+        });
+    };
+
+    const reindexWeeks = (data: OBTLRow[]) => {
+        let counter = 1;
+
+        return data.map(row => {
+            if (row.type === 'regular') {
+
+                // Skip week 9 (midterm slot)
+                if (counter === 9) counter++;
+
+                // Stop at 17 (18 is final)
+                if (counter > 17) counter = 17;
+
+                const updatedRow = {
+                    ...row,
+                    weeks: counter.toString()
+                };
+
+                counter++;
+                return updatedRow;
+            }
+
+            // Force exam positions
+            if (row.type === 'midterm') {
+                return { ...row, weeks: '9' };
+            }
+
+            if (row.type === 'final') {
+                return { ...row, weeks: '18' };
+            }
+
+            return row;
+        });
+    };
+
+    const sortByWeek = (data: OBTLRow[]) => {
+        return [...data].sort((a, b) => {
+            const weekA = parseInt(a.weeks || '0');
+            const weekB = parseInt(b.weeks || '0');
+            return weekA - weekB;
+        });
+    };
+
+    // useEffects
 
     useEffect(() => {
         const saved = localStorage.getItem("syllabus_step3");
@@ -246,18 +499,14 @@ const Step3 = () => {
     }, []);
 
     useEffect(() => {
-        if (obtlData.length === 0) return;
-
-        localStorage.setItem("syllabus_step3", JSON.stringify(obtlData));
-
-        setShowDraftSaved(true);
+        if (!examLimitMessage) return;
 
         const timer = setTimeout(() => {
-            setShowDraftSaved(false);
-        }, 1500);
+            setExamLimitMessage(null);
+        }, 3000);
 
         return () => clearTimeout(timer);
-    }, [obtlData]);
+    }, [examLimitMessage]);
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] flex flex-col font-sans pb-40">
@@ -326,19 +575,49 @@ const Step3 = () => {
                             OBTL PLAN STRUCTURE
                         </div>
                         <div className="flex gap-2 w-full sm:w-auto">
-                            <button onClick={() => addRow('midterm')} className="flex-1 sm:flex-none bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-md text-[10px] font-bold shadow-sm transition-all flex items-center justify-center gap-1.5">
-                                <Plus size={12}/> MIDTERM
+                            <button
+                                onClick={() => addRow('midterm')}
+                                disabled={hasMidterm || obtlData.length >= 18}
+                                className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all
+                                ${hasMidterm
+                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                    : 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer'
+                                }`}
+                            >
+                                <Plus size={12}/> ADD MIDTERM EXAM ROW
                             </button>
-                            <button onClick={() => addRow('final')} className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold shadow-sm transition-all flex items-center justify-center gap-1.5">
-                                <Plus size={12}/> FINAL
+
+                            <button
+                                onClick={() => addRow('final')}
+                                disabled={hasFinal || obtlData.length >= 18}
+                                className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all
+                                ${hasFinal
+                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                    : 'bg-orange-600 hover:bg-orange-700 text-white cursor-pointer'
+                                }`}
+                            >
+                                <Plus size={12}/> ADD FINAL EXAM ROW
                             </button>
                         </div>
+                        <AnimatePresence>
+                            {examLimitMessage && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="w-full mt-2 bg-red-50 border border-red-200 text-red-700 text-xs font-medium p-3 rounded-md"
+                                >
+                                    {examLimitMessage}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
 
-                    <div className="hidden md:block overflow-x-auto">
+                    <div ref={containerRef} className="hidden md:block overflow-x-auto max-h-[70vh] overflow-y-auto">
                         <table className="w-full border-collapse">
                             <thead className="bg-[#fcfcfc] text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200">
                                 <tr>
+                                    <th className="p-4 w-10"></th>
                                     <th className="p-4 text-left font-black w-20">Weeks (18 Weeks) </th>
                                     <th className="p-4 text-left font-black w-[15%]">Desired Learning Outcomes (DLOs)</th>
                                     <th className="p-4 text-left font-black w-[10%]">Alignment to CLOs</th>
@@ -348,39 +627,98 @@ const Step3 = () => {
                                     <th className="p-4 w-10"></th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {obtlData.map((row) => (
-                                    <tr key={row.id} className={`${row.type !== 'regular' ? 'bg-amber-50/50' : 'hover:bg-slate-50/50'} transition-colors group`}>
-                                        <td className="p-4 align-top">
-                                            <input 
-                                                type="text" value={row.weeks} 
-                                                onChange={(e) => handleCellChange(row.id, 'weeks', e.target.value)} 
-                                                className={`w-10 h-10 md:w-12 md:h-12 rounded-lg text-center font-black text-sm focus:ring-2 focus:ring-[#800000] ${row.type !== 'regular' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`} 
-                                            />
-                                        </td>
-                                        {row.type === 'regular' ? (
-                                            <>
-                                                <td className="p-1 align-top"><TableCell id={row.id} field="dlo" value={row.dlo} onChange={handleCellChange} placeholder="DLO..." /></td>
-                                                <td className="p-1 align-top"><TableCell id={row.id} field="clo" value={row.clo} onChange={handleCellChange} placeholder="CLO..." /></td>
-                                                <td className="p-1 align-top"><TableCell id={row.id} field="topics" value={row.topics} onChange={handleCellChange} placeholder="Topics..." /></td>
-                                                <td className="p-1 align-top"><TableCell id={row.id} field="deliveryFace" value={row.deliveryFace} onChange={handleCellChange} placeholder="Face-to-Face" isDelivery bgColor="bg-white" /></td>
-                                                <td className="p-1 align-top"><TableCell id={row.id} field="deliverySync" value={row.deliverySync} onChange={handleCellChange} placeholder="Synchronous" isDelivery bgColor="bg-slate-50/30" /></td>
-                                                <td className="p-1 align-top"><TableCell id={row.id} field="deliveryAsync" value={row.deliveryAsync} onChange={handleCellChange} placeholder="Asynchronous" isDelivery bgColor="bg-slate-50/30" /></td>
-                                                <td className="p-1 align-top"><TableCell id={row.id} field="tasks" value={row.tasks} onChange={handleCellChange} placeholder="Tasks..." /></td>
-                                            </>
-                                        ) : (
-                                            <td colSpan={7} className="p-4">
-                                                <input type="text" value={row.topics} onChange={(e) => handleCellChange(row.id, 'topics', e.target.value)} className="w-full bg-transparent font-black text-amber-800 uppercase tracking-widest border-none focus:ring-0 text-xs md:text-sm" />
-                                            </td>
-                                        )}
-                                        <td className="p-4 text-center">
-                                            <button  onClick={() => openDeleteModal('row', row.id)} className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg">
-                                                <Trash2 size={16}/>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={handleDragEnd}
+                                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                            >
+                                <SortableContext
+                                    items={obtlData.map(row => row.id)}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    <tbody className="divide-y divide-slate-100">
+                                        {obtlData.map((row) => (
+                                            <SortableRow key={row.id} row={row}>
+                                                {({ attributes, listeners }: any) => (
+                                                    <>
+                                                        <td className="p-2 w-10 align-top">
+                                                            <button
+                                                                {...attributes}
+                                                                {...listeners}
+                                                                style={{ touchAction: 'none' }}
+                                                                className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700 p-2 flex items-center justify-center rounded-md hover:bg-slate-100"
+                                                            >
+                                                                {/* 6 dots */}
+                                                                <svg width="20" height="18" viewBox="0 0 20 20" fill="currentColor">
+                                                                    <circle cx="5" cy="5" r="2" />
+                                                                    <circle cx="12" cy="5" r="2" />
+                                                                    <circle cx="19" cy="5" r="2" />
+
+                                                                    <circle cx="5" cy="12" r="2" />
+                                                                    <circle cx="12" cy="12" r="2" />
+                                                                    <circle cx="19" cy="12" r="2" />
+                                                                </svg>
+                                                            </button>
+                                                        </td>  
+                                                        <td className="p-4 align-top">
+                                                            <input 
+                                                                type="text"
+                                                                value={row.weeks}
+                                                                readOnly={false}
+                                                                onChange={(e) => handleCellChange(row.id, 'weeks', e.target.value)}
+                                                                className={`w-10 h-10 md:w-12 md:h-12 rounded-lg text-center font-black text-sm focus:ring-2 focus:ring-[#800000] ${
+                                                                    row.type !== 'regular'
+                                                                        ? row.type === 'midterm'
+                                                                            ? 'bg-amber-200 text-amber-900 cursor-not-allowed'
+                                                                            : 'bg-red-200 text-red-900 cursor-not-allowed'
+                                                                        : 'bg-slate-100 text-slate-700'
+                                                                }`}
+                                                            />
+                                                        </td>
+
+                                                        {row.type === 'regular' ? (
+                                                            <>
+                                                                <td className="p-3 align-top"><TableCell id={row.id} field="dlo" value={row.dlo} onChange={handleCellChange} placeholder="DLO..." /></td>
+                                                                <td className="p-3 align-top"><TableCell id={row.id} field="clo" value={row.clo} onChange={handleCellChange} placeholder="CLO..." /></td>
+                                                                <td className="p-3 align-top"><TableCell id={row.id} field="topics" value={row.topics} onChange={handleCellChange} placeholder="Topics..." /></td>
+                                                                <td className="p-3 align-top"><TableCell id={row.id} field="deliveryFace" value={row.deliveryFace} onChange={handleCellChange} placeholder="Face-to-Face" isDelivery bgColor="bg-white" /></td>
+                                                                <td className="p-3 align-top"><TableCell id={row.id} field="deliverySync" value={row.deliverySync} onChange={handleCellChange} placeholder="Synchronous" isDelivery bgColor="bg-slate-50/30" /></td>
+                                                                <td className="p-3 align-top"><TableCell id={row.id} field="deliveryAsync" value={row.deliveryAsync} onChange={handleCellChange} placeholder="Asynchronous" isDelivery bgColor="bg-slate-50/30" /></td>
+                                                                <td className="p-3 align-top"><TableCell id={row.id} field="tasks" value={row.tasks} onChange={handleCellChange} placeholder="Tasks..." /></td>
+                                                            </>
+                                                        ) : (
+                                                            <td
+                                                                colSpan={7}
+                                                                className={`p-4 ${
+                                                                    row.type === 'midterm'
+                                                                        ? 'bg-amber-100'
+                                                                        : row.type === 'final'
+                                                                        ? 'bg-red-100'
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                <input
+                                                                    type="text"
+                                                                    value={row.topics}
+                                                                    readOnly
+                                                                    className="w-full bg-transparent p-3 rounded-lg font-black text-amber-900 uppercase text-[13px] border-none focus:ring-0"
+                                                                />
+                                                            </td>
+                                                        )}
+
+                                                        <td className="p-4 text-center">
+                                                            <button onClick={() => openDeleteModal('row', row.id)} className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg">
+                                                                <Trash2 size={16}/>
+                                                            </button>
+                                                        </td>
+                                                    </>
+                                                )}
+                                            </SortableRow>
+                                        ))}
+                                    </tbody>
+                                </SortableContext>
+                            </DndContext>
                         </table>
                     </div>
 
@@ -419,7 +757,16 @@ const Step3 = () => {
                         ))}
                     </div>
 
-                    <button onClick={() => addRow('regular')} className="w-full py-6 md:py-8 border-t border-dashed border-slate-200 text-slate-400 hover:text-[#800000] hover:bg-slate-50 font-bold flex items-center justify-center gap-2 transition-all group text-xs md:text-sm">
+                    <button
+                        onClick={() => addRow('regular')}
+                        disabled={obtlData.length >= 18}
+                        className={`w-full py-6 md:py-8 border-t border-dashed border-slate-200 font-bold flex items-center justify-center gap-2 transition-all group text-xs md:text-sm
+                        ${
+                            obtlData.length >= 18
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                                : 'text-slate-400 hover:text-[#800000] hover:bg-slate-50 cursor-pointer'
+                        }`}
+                    >
                         <Plus size={18}/> ADD WEEKLY LEARNING PLAN
                     </button>
                 </div>
@@ -447,7 +794,7 @@ const Step3 = () => {
                         <div className="flex justify-end items-center mb-2">
                             <button
                                 onClick={addReference}
-                                className="bg-[#800000] hover:bg-[#600000] text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1"
+                                className="bg-[#800000] hover:bg-[#600000] text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 cursor-pointer"
                             >
                                 <Plus size={14}/> Add
                             </button>
@@ -470,7 +817,7 @@ const Step3 = () => {
                                         <td className="p-2 text-center w-12">
                                             <button
                                                 onClick={() => openDeleteModal('reference', ref.id)}
-                                                className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                                                className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg cursor-pointer"
                                             >
                                                 <Trash2 size={16}/>
                                             </button>
@@ -491,7 +838,7 @@ const Step3 = () => {
 
                             <button
                                 onClick={addOtherReference}
-                                className="bg-[#800000] hover:bg-[#600000] text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1"
+                                className="bg-[#800000] hover:bg-[#600000] text-white px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 cursor-pointer"
                             >
                                 <Plus size={14}/> Add
                             </button>
@@ -548,7 +895,7 @@ const Step3 = () => {
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
                         <Link
-                                href="/syllabus-generator/step-1"
+                                href="/syllabus-generator/step-2"
                                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs sm:text-sm border border-slate-200 transition-all"
                         >
                                 <ChevronLeft size={16} /> Back
@@ -556,7 +903,7 @@ const Step3 = () => {
 
                         <button
                                 onClick={handleNext}
-                                className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all"
+                                className="flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 bg-[#800000] text-white rounded-xl font-bold hover:bg-[#600000] text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer"
                         >
                                 Next: Grading System <ChevronRight size={16} />
                         </button>
