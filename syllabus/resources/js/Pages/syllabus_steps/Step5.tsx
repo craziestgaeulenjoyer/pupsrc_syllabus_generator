@@ -6,12 +6,14 @@ import {
     Mail,
     Phone,
     Clock,
-    Image as ImageIcon
+    Image as ImageIcon,
+    TriangleAlert
 } from 'lucide-react';
-import { motion, AnimatePresence, number } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from '../navbar_layouts/Navbar';
-import { div } from 'framer-motion/client';
-
+import { validateStep5} from '../Validation/SyllabusValidation';
+import Alert from '../Validation/Alert';
+import DeleteModal from '../modals_section/DeleteConfirmation';
 /**
  * Interface for Group Grade Criteria
  * Defines the structure for the assessment rows
@@ -34,6 +36,7 @@ interface Signatory {
 const Step5 = () => {
     // --- STATE DEFINITIONS ---
     const [showPreview, setShowPreview] = useState(false);
+    const [errors, setErrors] = useState<any>({});
 
     // 1. Class Information State
     const [classInfo, setClassInfo] = useState({
@@ -129,6 +132,76 @@ const Step5 = () => {
     }
     return result;
 }
+    const [alert, setAlert] = useState<{
+        message: string | null | undefined;
+        type: 'error' | 'success';
+    }>({
+        message: null,
+        type: 'error'
+    });
+
+    const handleNext = () => {
+        const result = validateStep5({
+            classInfo,
+            facultyInfo,
+            signatories
+        });
+
+        if (!result.isValid) {
+            setErrors(result.errors);
+
+            // 🔴 show alert message
+            setAlert({
+                message: result.message,
+                type: 'error'
+            });
+
+            setTimeout(() => {
+                setErrors({});
+                setAlert({ message: null, type: 'error' });
+            }, 3000);
+
+            return;
+        }
+
+        setErrors({});
+        setAlert({ message: null, type: 'error' });
+
+        window.location.href = "/syllabus-generator/step-6";
+    };
+
+    const getSigError = (sigId: number, field: string) => {
+        return errors?.[`signatory_${field}_${sigId}`];
+    };
+    const [deleteModal, setDeleteModal] = useState<{
+        open: boolean;
+        type: 'rubric' | 'group' | 'signatory' | null;
+        id: number | null;
+    }>({
+        open: false,
+        type: null,
+        id: null
+    });
+    const handleConfirmDelete = () => {
+        if (!deleteModal.id) return;
+
+        switch (deleteModal.type) {
+            case 'rubric':
+                setRubrics(prev => prev.filter(r => r.id !== deleteModal.id));
+                break;
+
+            case 'group':
+                setGroupCriteria(prev => prev.filter(c => c.id !== deleteModal.id));
+                break;
+
+            case 'signatory':
+                setSignatories(prev => prev.filter(s => s.id !== deleteModal.id));
+                break;
+        }
+
+        setDeleteModal({ open: false, type: null, id: null });
+    };
+
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans flex flex-col">
@@ -161,6 +234,18 @@ const Step5 = () => {
                         <span className="font-bold text-slate-900">Instructions:</span> Review the institutional policies and set your specific grading criteria. The rubrics below are pre-filled based on PUP standards but can be modified.
                     </p>
                 </div>
+                {/* WARNING / ERROR MESSAGE */}
+                {alert.message && (
+                    <div className="bg-white border-l-4 border-red-500 p-4 rounded-r-xl shadow-sm mb-8 flex items-start gap-3">
+                        <TriangleAlert className="text-red-500 mt-0.5 shrink-0" size={20} />
+                        
+                        <div className="flex-1">
+                            <p className="text-[11px] md:text-sm text-red-600 font-medium break-words">
+                                <span className="font-bold text-red-600">Warning:</span> {alert.message}
+                            </p>
+                        </div>
+                    </div>
+                )}
 
 {/* 1. RUBRICS TABLE */}
 <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8 mx-auto w-full max-w-full">
@@ -246,7 +331,9 @@ const Step5 = () => {
                         {/* Actions Column */}
                         <td className="p-3 text-center align-middle border-l border-slate-100 bg-slate-50/20">
                             <button 
-                                onClick={() => setRubrics(rubrics.filter(r => r.id !== row.id))} 
+                               onClick={() =>
+                                            setDeleteModal({ open: true, type: 'rubric', id: row.id })
+                                        }
                                 className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all active:scale-90"
                                 title="Delete Row"
                             >
@@ -339,7 +426,9 @@ const Step5 = () => {
                         {/* Action Column */}
                         <td className="py-3 px-2 sm:px-3 text-center rounded-r-xl border-y border-r border-slate-100">
                             <button 
-                                onClick={() => removeRow(c.id)} 
+                               onClick={() =>
+                                            setDeleteModal({ open: true, type: 'group', id: c.id })
+                                        }
                                 className="text-slate-300 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50 active:scale-90"
                                 title="Delete Row"
                             >
@@ -350,6 +439,13 @@ const Step5 = () => {
                 ))}
             </tbody>
         </table>
+        <DeleteModal
+            open={deleteModal.open}
+            onClose={() =>
+                setDeleteModal({ open: false, type: null, id: null })
+            }
+            onConfirm={handleConfirmDelete}
+        />
     </div>
     
             {groupCriteria.length > 0 && (
@@ -379,29 +475,50 @@ const Step5 = () => {
             </div>
             
             <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4 sm:gap-5">
-                {[
-                    { label: 'Section', key: 'section', placeholder: 'BSIT 4-1' },
-                    { label: 'Semester', key: 'semester', placeholder: '2nd Semester' },
-                    { label: 'Time', key: 'time', placeholder: '8:00 AM - 5:00 PM' },
-                    { label: 'Room', key: 'room', placeholder: 'Lab 1 / Online' }
-                ].map((field) => (
-                    <div key={field.label} className="space-y-1.5 w-full">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">
-                            {field.label}
-                        </label>
-                        <input 
-                            className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all placeholder:text-slate-300" 
-                            placeholder={field.placeholder}
-                            value={classInfo[field.key as keyof typeof classInfo]}
-                            onChange={(e) => setClassInfo({...classInfo, [field.key]: e.target.value})}
-                        />
-                    </div>
-                ))}
+               {[
+                { label: 'Section', key: 'section', placeholder: 'BSIT 4-1' },
+                { label: 'Semester', key: 'semester', placeholder: '2nd Semester' },
+                { label: 'Time', key: 'time', placeholder: '8:00 AM - 5:00 PM' },
+                { label: 'Room', key: 'room', placeholder: 'Lab 1 / Online' }
+            ].map((field) => (
+                <div key={field.label} className="space-y-1.5 w-full">
+                    
+                    {/* LABEL */}
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">
+                        {field.label}
+                    </label>
+
+                    {/* INPUT */}
+                    <input 
+                        className={`w-full p-2.5 sm:p-3 bg-slate-50 border rounded-xl text-xs sm:text-sm outline-none transition-all placeholder:text-slate-300
+                        ${errors[field.key] ? 'border-red-500 focus:ring-red-100' : 'border-slate-200 focus:ring-blue-100 focus:border-blue-400'}`}
+                        
+                        placeholder={field.placeholder}
+                        
+                        value={classInfo[field.key as keyof typeof classInfo]}
+                        
+                        onChange={(e) =>
+                            setClassInfo({
+                                ...classInfo,
+                                [field.key]: e.target.value
+                            })
+                        }
+                    />
+
+                    {/* ERROR MESSAGE */}
+                    {errors[field.key] && (
+                        <p className="text-red-500 text-[10px] ml-1 mt-1">
+                            {errors[field.key]}
+                        </p>
+                    )}
+                </div>
+            ))}
             </div>
         </section>
 
         {/* FACULTY INFORMATION */}
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-col h-full">
+
             <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-4">
                 <div className="p-2 bg-amber-50 rounded-lg shrink-0">
                     <User size={20} className="text-amber-700" />
@@ -412,99 +529,225 @@ const Step5 = () => {
             </div>
 
             <div className="space-y-4 sm:space-y-5">
+
+                {/* NAME */}
                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">Name of Faculty</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">
+                        Name of Faculty
+                    </label>
+
                     <div className="relative">
                         <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+
                         <input 
-                            className="w-full pl-10 p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-amber-100 outline-none transition-all" 
-                            placeholder="Enter Full Name" 
+                            className={`w-full pl-10 p-3 bg-slate-50 border rounded-xl text-sm outline-none transition-all
+                            ${errors.name ? 'border-red-500 focus:ring-red-100' : 'border-slate-200 focus:ring-amber-100'}`}
+                            
+                            placeholder="Enter Full Name"
                             value={facultyInfo.name}
-                            onChange={(e) => setFacultyInfo({...facultyInfo, name: e.target.value})}
+                            onChange={(e) =>
+                                setFacultyInfo({ ...facultyInfo, name: e.target.value })
+                            }
                         />
                     </div>
+
+                    {errors.name && (
+                        <p className="text-red-500 text-[10px] ml-1 mt-1">
+                            {errors.name}
+                        </p>
+                    )}
                 </div>
 
-                <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4 sm:gap-5">
+              {/* CONSULTATION + CONTACT  */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+
+                    {/* CONSULTATION */}
                     <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">Consultation Time</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">
+                            Consultation Time
+                        </label>
+
                         <div className="relative">
                             <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+
                             <input 
-                                className="w-full pl-10 p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-100 transition-all" 
-                                placeholder="TTh 1:00 PM" 
+                                className={`w-full pl-10 p-3 bg-slate-50 border rounded-xl text-sm outline-none transition-all
+                                ${errors.consultation ? 'border-red-500' : 'border-slate-200'}`}
+                                
+                                placeholder="TTh 1:00 PM"
                                 value={facultyInfo.consultation}
-                                onChange={(e) => setFacultyInfo({...facultyInfo, consultation: e.target.value})}
+                                onChange={(e) =>
+                                    setFacultyInfo({ ...facultyInfo, consultation: e.target.value })
+                                }
                             />
                         </div>
+
+                        {errors.consultation && (
+                            <p className="text-red-500 text-[10px] ml-1 mt-1">
+                                {errors.consultation}
+                            </p>
+                        )}
                     </div>
+
+                    {/* CONTACT */}
                     <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">Contact Number</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">
+                            Contact Number
+                        </label>
+
                         <div className="relative">
                             <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+
                             <input 
-                                className="w-full pl-10 p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-100 transition-all" 
-                                placeholder="09XX-XXX-XXXX" 
+                                className={`w-full pl-10 p-3 bg-slate-50 border rounded-xl text-sm outline-none transition-all
+                                ${errors.contact ? 'border-red-500' : 'border-slate-200'}`}
+                                
+                                placeholder="09XX-XXX-XXXX"
                                 value={facultyInfo.contact}
-                                onChange={(e) => setFacultyInfo({...facultyInfo, contact: e.target.value})}
+                                onChange={(e) =>
+                                    setFacultyInfo({ ...facultyInfo, contact: e.target.value })
+                                }
                             />
                         </div>
+
+                        {errors.contact && (
+                            <p className="text-red-500 text-[10px] ml-1 mt-1">
+                                {errors.contact}
+                            </p>
+                        )}
                     </div>
+
                 </div>
 
+                {/* EMAIL */}
                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">Institutional Email</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1 block">
+                        Institutional Email
+                    </label>
+
                     <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+
                         <input 
-                            className="w-full pl-10 p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-100 transition-all" 
-                            placeholder="faculty@pup.edu.ph" 
+                            className={`w-full pl-10 p-3 bg-slate-50 border rounded-xl text-sm outline-none transition-all
+                            ${errors.email ? 'border-red-500 focus:ring-red-100' : 'border-slate-200 focus:ring-amber-100'}`}
+                            
+                            placeholder="faculty@pup.edu.ph"
                             value={facultyInfo.email}
-                            onChange={(e) => setFacultyInfo({...facultyInfo, email: e.target.value})}
+                            onChange={(e) =>
+                                setFacultyInfo({ ...facultyInfo, email: e.target.value })
+                            }
                         />
                     </div>
+
+                    {errors.email && (
+                        <p className="text-red-500 text-[10px] ml-1 mt-1">
+                            {errors.email}
+                        </p>
+                    )}
                 </div>
+
             </div>
         </section>
     </div>
 </div>
 
- {/* 4. SIGNATORIES INPUT */}
- <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6 mt-8 mb-8">
-    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div className="flex items-center gap-2">
-            <CheckCircle size={18} className="text-[#800000]" />
-            <h3 className="text-[#800000] font-bold uppercase text-sm tracking-tight">Approval Signatories</h3>
-        </div>
-        <button 
-            onClick={() => setSignatories([...signatories, { id: Date.now(), role: 'Approved by:', name: '', title: '', signature: null }])}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-100"
-        >
-                <Plus size={14} /> Add Signatory
-        </button>
-    </div>
-
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {signatories.map((sig: Signatory) => (
-            <div key={sig.id} className="border border-slate-200 bg-slate-50/30 rounded-xl p-4 relative group">
-                <button onClick={() => setSignatories(signatories.filter((s: Signatory) => s.id !== sig.id))} className="absolute top-2 right-2 text-slate-300 hover:text-red-500">
-                    <Trash2 size={16}/>
-                </button>
-                <input className="w-full text-[10px] font-black uppercase text-[#800000] mb-3 bg-transparent outline-none" value={sig.role} onChange={(e) => updateSignatory(sig.id, 'role', e.target.value)} />
-                                
-                    <label className="aspect-video bg-white border-2 border-dashed border-slate-200 rounded-lg mb-3 flex flex-col items-center justify-center cursor-pointer">
-                        {sig.signature ? (
-                            <img src={sig.signature} alt="Signature" className="w-full h-full object-contain p-2" />
-                        ) : (
-                        <div className="flex flex-col items-center text-slate-400">
-                            <Upload size={20}/>
-                            <span className="text-[8px] mt-1 uppercase font-black tracking-widest">Upload E-Signature</span>
+                {/* 4. SIGNATORIES INPUT */}
+                <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6 mt-8 mb-8">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                        <div className="flex items-center gap-2">
+                            <CheckCircle size={18} className="text-[#800000]" />
+                            <h3 className="text-[#800000] font-bold uppercase text-sm tracking-tight">
+                                Approval Signatories
+                            </h3>
                         </div>
-                        )}
-                            <input type="file" className="hidden" accept="image/*" onChange={(e) => {const selectedFile = e.target.files?.[0]; if (selectedFile) { handleSignatureUpload(sig.id, selectedFile); } }} />
+
+                        <button 
+                            onClick={() =>
+                                setSignatories([
+                                    ...signatories,
+                                    { id: Date.now(), role: 'Approved by:', name: '', title: '', signature: null }
+                                ])
+                            }
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-100"
+                        >
+                            <Plus size={14} /> Add Signatory
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {signatories.map((sig: Signatory) => (
+                            <div
+                                key={sig.id}
+                                className="border border-slate-200 bg-slate-50/30 rounded-xl p-4 relative group"
+                            >
+                                <button
+                                   onClick={() =>
+                                                setDeleteModal({ open: true, type: 'signatory', id: sig.id })
+                                            }
+                                    className="absolute top-2 right-2 text-slate-300 hover:text-red-500"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+
+                                {/* ROLE */}
+                                <input
+                                    className={`w-full text-[10px] font-black uppercase text-[#800000] mb-3 bg-transparent outline-none
+                                        ${getSigError(sig.id, 'role') ? 'border-b border-red-500' : ''}`}
+                                    value={sig.role}
+                                    onChange={(e) => updateSignatory(sig.id, 'role', e.target.value)}
+                                />
+
+                                {/* SIGNATURE */}
+                                <label
+                                    className={`aspect-video bg-white border-2 border-dashed rounded-lg mb-3 flex flex-col items-center justify-center cursor-pointer
+                                    ${!sig.signature && errors?.signatories ? 'border-red-500' : 'border-slate-200'}`}
+                                >
+                                    {sig.signature ? (
+                                        <img
+                                            src={sig.signature}
+                                            alt="Signature"
+                                            className="w-full h-full object-contain p-2"
+                                        />
+                                    ) : (
+                                        <div className="flex flex-col items-center text-slate-400">
+                                            <Upload size={20} />
+                                            <span className="text-[8px] mt-1 uppercase font-black tracking-widest">
+                                                Upload E-Signature
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const selectedFile = e.target.files?.[0];
+                                            if (selectedFile) {
+                                                handleSignatureUpload(sig.id, selectedFile);
+                                            }
+                                        }}
+                                    />
                                 </label>
-                                <input className="w-full text-xs font-bold border-b py-1 outline-none uppercase" placeholder="ENTER FULL NAME" value={sig.name} onChange={(e) => updateSignatory(sig.id, 'name', e.target.value)} />
-                                <input className="w-full text-[9px] text-slate-500 mt-1 outline-none bg-transparent" placeholder="Position" value={sig.title} onChange={(e) => updateSignatory(sig.id, 'title', e.target.value)} />
+
+                                {/* NAME */}
+                                <input
+                                    className={`w-full text-xs font-bold border-b py-1 outline-none uppercase
+                                        ${getSigError(sig.id, 'name') ? 'border-red-500' : ''}`}
+                                    placeholder="ENTER FULL NAME"
+                                    value={sig.name}
+                                    onChange={(e) => updateSignatory(sig.id, 'name', e.target.value)}
+                                />
+
+                                {/* TITLE */}
+                                <input
+                                    className={`w-full text-[9px] text-slate-500 mt-1 outline-none bg-transparent
+                                        ${getSigError(sig.id, 'title') ? 'border-b border-red-500' : ''}`}
+                                    placeholder="Position"
+                                    value={sig.title}
+                                    onChange={(e) => updateSignatory(sig.id, 'title', e.target.value)}
+                                />
                             </div>
                         ))}
                     </div>
@@ -512,28 +755,34 @@ const Step5 = () => {
             </main>
 
             {/* FOOTER */}
-            <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 sm:p-4 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
-                <div className="max-w-7xl mx-auto flex justify-center sm:justify-end items-center">
-                    <div className="flex gap-2 w-full sm:w-auto">
+           <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 sm:p-4 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
+                <div className="max-w-7xl mx-auto flex items-center justify-between">
+
+                    <div className="flex items-center">
+                        <Alert message={alert.message} type={alert.type} />
+                    </div>
+
+                    {/* BUTTONS (RIGHT SIDE) */}
+                    <div className="flex gap-2 w-full sm:w-auto justify-end">
                         <Link
                             href="/syllabus-generator/step-4"
-                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-[10px] sm:text-xs md:text-sm border border-slate-200 transition-all active:scale-95 whitespace-nowrap"
+                            className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-[10px] sm:text-xs md:text-sm border border-slate-200 transition-all active:scale-95 whitespace-nowrap"
                         >
-                            <ChevronLeft size={16} className="shrink-0" /> 
-                            <span>Back</span>
+                            <ChevronLeft size={16} />
+                            Back
                         </Link>
 
-                        <Link
-                            href="/syllabus-generator/step-6"
-                            className="flex-[2] sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-8 py-2.5 rounded-xl font-bold text-[10px] sm:text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 whitespace-nowrap"
+                        <button
+                            onClick={handleNext}
+                            className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-8 py-2.5 rounded-xl font-bold text-[10px] sm:text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 whitespace-nowrap"
                         >
-                            <span className="hidden xxs:inline">Next:</span> Finalize Syllabus 
-                            <ChevronRight size={16} className="shrink-0" />
-                        </Link>
+                            Next: Finalize Syllabus
+                            <ChevronRight size={16} />
+                        </button>
                     </div>
+
                 </div>
             </footer>
-
 {/* PREVIEW MODAL STEP 5 */}
 <AnimatePresence>
     {showPreview && (
