@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Head, Link } from '@inertiajs/react';
 import { 
     Plus, Trash2, Calendar, Upload, FileText, X, FileDown, Edit3, BookOpen,
@@ -107,16 +107,16 @@ const Step5 = () => {
     const handleSignatureUpload = (id: number, file: File | Blob) => { 
         if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-        const base64String = reader.result as string;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64String = reader.result as string;
 
-        setSignatories(prev => prev.map(sig => 
-            sig.id === id ? { ...sig, signature: base64String } : sig
-        ));
+            setSignatories(prev => prev.map(sig => 
+                sig.id === id ? { ...sig, signature: base64String } : sig
+            ));
+        };
+        reader.readAsDataURL(file);
     };
-    reader.readAsDataURL(file);
-};
 
     // Update Signatory Text Fields
     const updateSignatory = (id: number, field: string, value: string) => {
@@ -126,12 +126,13 @@ const Step5 = () => {
     };
 
     function chunkArray(rubrics: any[], size: number) {
-    const result: any[] = [];
-    for (let i = 0; i < rubrics.length; i += size) {
-        result.push(rubrics.slice(i, i + size));
+        const result: any[] = [];
+        for (let i = 0; i < rubrics.length; i += size) {
+            result.push(rubrics.slice(i, i + size));
+        }
+        return result;
     }
-    return result;
-}
+
     const [alert, setAlert] = useState<{
         message: string | null | undefined;
         type: 'error' | 'success';
@@ -166,6 +167,14 @@ const Step5 = () => {
 
         setErrors({});
         setAlert({ message: null, type: 'error' });
+
+        sessionStorage.setItem('step5Data', JSON.stringify({
+            classInfo,
+            facultyInfo,
+            rubrics,
+            groupCriteria,
+            signatories
+        }));
 
         window.location.href = "/syllabus-generator/step-6";
     };
@@ -202,6 +211,43 @@ const Step5 = () => {
         setDeleteModal({ open: false, type: null, id: null });
     };
 
+    useEffect(() => {
+        const saved = sessionStorage.getItem('step5Data');
+
+        if (saved) {
+            const parsed = JSON.parse(saved);
+
+            setClassInfo(parsed.classInfo || {
+                section: '',
+                semester: '',
+                time: '',
+                room: ''
+            });
+
+            setFacultyInfo(parsed.facultyInfo || {
+                name: '',
+                consultation: '',
+                contact: '',
+                email: ''
+            });
+
+            setRubrics(parsed.rubrics || []);
+            setGroupCriteria(parsed.groupCriteria || []);
+            setSignatories(parsed.signatories || []);
+        }
+    }, []);
+
+    useEffect(() => {
+        const data = {
+            classInfo,
+            facultyInfo,
+            rubrics,
+            groupCriteria,
+            signatories
+        };
+
+        sessionStorage.setItem('step5Data', JSON.stringify(data));
+    }, [classInfo, facultyInfo, rubrics, groupCriteria, signatories]);
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans flex flex-col">

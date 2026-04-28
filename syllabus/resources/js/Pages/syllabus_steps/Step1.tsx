@@ -12,10 +12,8 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { route } from 'ziggy-js';
 import PageSpacer from '../pagespacer_layout/PageSpacer';
-import { Document, Page } from 'react-pdf';
 import { router } from '@inertiajs/react';
 import { validateStep1 } from '../Validation/SyllabusValidation';
-import { validateCourse } from '../Validation/SyllabusValidation';
 import Alert from '../Validation/Alert';
 import DOMPurify from 'dompurify';
 
@@ -25,21 +23,8 @@ const Step1 = () => {
     const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [showSaveToast, setShowSaveToast] = useState(false);
-
-    const savedData = localStorage.getItem('syllabus_step1');
-    
-    const { data, setData, post, processing, errors } = useForm (
-        savedData
-            ? JSON.parse(savedData)
-            : {
-                course_code: '',
-                course_credit: 3,
-                course_title: '',
-                pre_requisites: '',
-                co_requisites: '',  
-                course_description: '',
-            }
-    );
+    const [alertMessage, setAlertMessage] = useState<string | null>(null);
+    const [alertType, setAlertType] = useState<'error' | 'success'>('error');
 
     const modules = {
         toolbar: [
@@ -62,8 +47,34 @@ const Step1 = () => {
         if (type === 'up' && current < 10) setData('course_credit', current + 1);
         if (type === 'down' && current > 0) setData('course_credit', current - 1);
     };
-    const [alertMessage, setAlertMessage] = useState<string | null>(null);
-    const [alertType, setAlertType] = useState<'error' | 'success'>('error');
+
+    const getSessionId = () => {
+        let sessionId = sessionStorage.getItem('syllabus_session_id');
+
+        if (!sessionId) {
+            sessionId = crypto.randomUUID();
+            sessionStorage.setItem('syllabus_session_id', sessionId);
+        }
+
+        return sessionId;
+    };
+
+    const storageKey = `syllabus_step1_${getSessionId()}`;
+
+    const savedData = localStorage.getItem(storageKey);
+
+    const { data, setData, post, processing, errors } = useForm (
+        savedData
+            ? JSON.parse(savedData)
+            : {
+                course_code: '',
+                course_credit: 3,
+                course_title: '',
+                pre_requisites: '',
+                co_requisites: '',  
+                course_description: '',
+            }
+    );
 
     useEffect(() => {
         const hasEmptyFields =
@@ -114,9 +125,8 @@ const Step1 = () => {
     };
 
     const confirmCancel = () => {
-        for (let i = 1; i <= 6; i++) {
-            localStorage.removeItem(`syllabus_step${i}`);
-        }
+        localStorage.removeItem(storageKey);
+        sessionStorage.removeItem('syllabus_session_id');
 
         router.visit(route('dashboard'));
     };
@@ -138,14 +148,14 @@ const Step1 = () => {
         }
 
         // ensure latest data saved
-        localStorage.setItem('syllabus_step1', JSON.stringify(data));
+        localStorage.setItem(storageKey, JSON.stringify(data));
 
         router.visit(route('syllabus.step2'));
     };
 
     useEffect(() => {
         const timeout = setTimeout(() => {
-            localStorage.setItem('syllabus_step1', JSON.stringify(data));
+            localStorage.setItem(storageKey, JSON.stringify(data));
 
             // show toast
             setShowSaveToast(true);
@@ -294,7 +304,7 @@ const Step1 = () => {
                                     <input type="text" value={data.course_title} onChange={e => setData('course_title', e.target.value)}
                                         className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm outline-none
                                                     ${localErrors.course_title ? 'border-red-500' : 'border-slate-200'}`}
-                                                    placeholder="e.g., COMP 001"/>
+                                                    placeholder="e.g., Intro to Computing"/>
                                             {localErrors.course_title && (
                                                 <p className="text-red-500 text-xs mt-1">
                                                     {localErrors.course_title}

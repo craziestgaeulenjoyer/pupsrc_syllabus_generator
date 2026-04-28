@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Head, Link } from '@inertiajs/react';
 import Navbar from '../navbar_layouts/Navbar'; 
 import { 
@@ -22,6 +22,31 @@ interface GradingComponent {
 }
 
 const Step4 = () => {
+    const defaultGradingComponents: GradingComponent[] = [
+        { 
+            id: '1', 
+            label: 'Class Standing', 
+            percentage: '70', 
+            subItems: [
+                { id: 's1', label: 'Seatwork' },
+                { id: 's2', label: 'Assignment' }
+            ] 
+        },
+        { 
+            id: '2', 
+            label: 'Quiz', 
+            percentage: '30', 
+            subItems: [
+                { id: 'q1', label: 'Midterm / Final Examinations and Project' }
+            ] 
+        }
+    ];
+
+    const defaultRequirements = [
+        { id: '1', text: 'Participation in the classroom activities', clo: 'CLOs 1-5' },
+        { id: '2', text: 'Oral Presentation - Final paper presentations', clo: 'CLO 5' }
+    ];
+
     const [showPreview, setShowPreview] = useState(false);
     const [f2fLink, setF2fLink] = useState('');
     const [deleteModal, setDeleteModal] = useState<{
@@ -48,37 +73,13 @@ const Step4 = () => {
         setDeleteModal({ open: false, type: 'requirement', id: null });
     };
     
-    // Grading System State
-    const [gradingComponents, setGradingComponents] = useState<GradingComponent[]>([
-        { 
-            id: '1', 
-            label: 'Class Standing', 
-            percentage: '70', 
-            subItems: [
-                { id: 's1', label: 'Seatwork' },
-                { id: 's2', label: 'Assignment' }
-            ] 
-        },
-        { 
-            id: '2', 
-            label: 'Quiz', 
-            percentage: '30', 
-            subItems: [
-                { id: 'q1', label: 'Midterm / Final Examinations and Project' }
-            ] 
-        }
-    ]);
+    const [gradingComponents, setGradingComponents] = useState<GradingComponent[]>(defaultGradingComponents);
+    const [requirements, setRequirements] = useState(defaultRequirements);
 
     // Automatic Total Logic
     const totalPercentage = useMemo(() => {
         return gradingComponents.reduce((acc, curr) => acc + (parseFloat(curr.percentage) || 0), 0);
     }, [gradingComponents]);
-
-    // Course Requirements State
-    const [requirements, setRequirements] = useState([
-        { id: '1', text: 'Participation in the classroom activities', clo: 'CLOs 1-5' },
-        { id: '2', text: 'Oral Presentation - Final paper presentations', clo: 'CLO 5' }
-    ]);
 
     // --- Logic Handlers ---
     const addGradingComponent = () => {
@@ -127,6 +128,36 @@ const Step4 = () => {
             return comp;
         }));
     };
+
+    useEffect(() => {
+        const saved = sessionStorage.getItem('syllabus_step4');
+
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+
+                setGradingComponents(parsed.gradingComponents?.length ? parsed.gradingComponents : defaultGradingComponents);
+                setRequirements(parsed.requirements?.length ? parsed.requirements : defaultRequirements);
+                setF2fLink(parsed.f2fLink ?? '');
+            } catch (err) {
+                console.error("Failed to parse Step 4 session data", err);
+            }
+        }
+    }, []);
+
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            const dataToSave = {
+                gradingComponents,
+                requirements,
+                f2fLink
+            };
+
+            sessionStorage.setItem('syllabus_step4', JSON.stringify(dataToSave));
+        }, 600);
+
+        return () => clearTimeout(timeout);
+    }, [gradingComponents, requirements, f2fLink]);
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] flex flex-col font-sans pb-40">

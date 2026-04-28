@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Head, Link } from '@inertiajs/react';
 import Navbar from '../navbar_layouts/Navbar'; 
 
@@ -83,21 +83,41 @@ const TableCell: React.FC<TableCellProps> = ({
     label,
     readOnly = false,
 }) => {
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+    // auto resize on mount + value change
+    useLayoutEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+        }
+    }, [value]);
+
     return (
-        <div className="flex flex-col w-full">
-            {label && <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 md:hidden">{label}</label>}
+        <div className="flex flex-col w-full h-full">
+            {label && (
+                <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 md:hidden">
+                    {label}
+                </label>
+            )}
+
             <textarea
+                ref={textareaRef}
                 value={value}
                 readOnly={readOnly}
                 placeholder={placeholder}
                 onChange={(e) => onChange(id, field, e.target.value)}
+                onInput={(e) => {
+                    const target = e.currentTarget;
+                    target.style.height = 'auto';
+                    target.style.height = target.scrollHeight + 'px';
+                }}
                 className={`
                     w-full text-[11px] p-2 bg-transparent border-0 md:border-r border-slate-200
                     focus:ring-1 focus:ring-[#800000] focus:bg-white focus:rounded-md
                     resize-none overflow-hidden
                     whitespace-pre-wrap break-words
                     leading-relaxed
-                    min-h-[60px]
                     ${isDelivery ? bgColor : ''} 
                     ${value === '' ? 'italic text-slate-400' : 'text-slate-700'}
                     ${readOnly ? 'cursor-not-allowed bg-slate-100' : ''}
@@ -107,12 +127,34 @@ const TableCell: React.FC<TableCellProps> = ({
     );
 };
 
+const SortableRow = React.memo(({ row, children }: any) => {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition
+    } = useSortable({ id: row.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition
+    };
+
+    return (
+        <tr ref={setNodeRef} style={style}>
+            {children({ attributes, listeners })}
+        </tr>
+    );
+});
+
 const Step3 = () => {
     const [showPreview, setShowPreview] = useState(false);
     const [obtlData, setObtlData] = useState<OBTLRow[]>([]);
     const [showDraftSaved, setShowDraftSaved] = useState(false);
     const [examLimitMessage, setExamLimitMessage] = useState<string | null>(null);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [isHydrated, setIsHydrated] = useState(false);
 
     const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -138,6 +180,11 @@ const Step3 = () => {
         message: null,
         type: 'error'
     });
+
+    const user = JSON.parse(sessionStorage.getItem("syllabusUser") || "{}");
+    const userId = user?.user_id || "guest";
+
+    const STORAGE_KEY = `syllabus_step3_${userId}`;
     
     const validateStep = () => {
         const midterms = obtlData.filter(r => r.type === 'midterm');
@@ -217,7 +264,11 @@ const Step3 = () => {
         setObtlData(arranged);
 
         // OPTIONAL: save clean version
-        localStorage.setItem("syllabus_step3", JSON.stringify(arranged));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            obtlData: arranged,
+            references,
+            otherReferences
+        }));
 
         window.location.href = "/syllabus-generator/step-4";
     };
@@ -233,13 +284,29 @@ const Step3 = () => {
     }, [alert.message]);
 
     const handleCellChange = (id: number, field: string, value: string) => {
-        setObtlData(prev =>
-            prev.map(row =>
-                row.id === id
-                    ? { ...row, [field]: value }
-                    : row
-            )
-        );
+        const container = containerRef.current;
+        const scrollTop = container?.scrollTop; // SAVE scroll position
+
+        setObtlData(prev => {
+            const updated = [...prev];
+            const index = updated.findIndex(r => r.id === id);
+
+            if (index !== -1) {
+                updated[index] = {
+                    ...updated[index],
+                    [field]: value
+                };
+            }
+
+            return updated;
+        });
+
+        // RESTORE scroll AFTER render
+        requestAnimationFrame(() => {
+            if (container && scrollTop !== undefined) {
+                container.scrollTop = scrollTop;
+            }
+        });
     };
 
     const addRow = (type: 'regular' | 'midterm' | 'final' = 'regular') => {
@@ -400,30 +467,6 @@ const Step3 = () => {
 
     const paginatedData = chunkData(obtlData, 6);
 
-    const SortableRow = ({ row, children }: any) => {
-        const {
-            attributes,
-            listeners,
-            setNodeRef,
-            transform,
-            transition
-        } = useSortable({ id: row.id });
-
-        const style = {
-            transform: CSS.Transform.toString(transform),
-            transition
-        };
-
-        return (
-            <tr
-                ref={setNodeRef}
-                style={style}
-            >
-                {children({ attributes, listeners })}
-            </tr>
-        );
-    };
-
     const sensors = useSensors(
         useSensor(PointerSensor)
     );
@@ -489,13 +532,19 @@ const Step3 = () => {
     // useEffects
 
     useEffect(() => {
-        const saved = localStorage.getItem("syllabus_step3");
+        const saved = localStorage.getItem(STORAGE_KEY);
 
         if (saved) {
-            setObtlData(JSON.parse(saved));
+            const parsed = JSON.parse(saved);
+
+            setObtlData(parsed.obtlData || initialWeeklyData);
+            setReferences(parsed.references || [{ id: 1, text: '' }]);
+            setOtherReferences(parsed.otherReferences || [{ id: 1, text: '' }]);
         } else {
             setObtlData(initialWeeklyData);
         }
+
+        setIsHydrated(true);
     }, []);
 
     useEffect(() => {
@@ -507,6 +556,23 @@ const Step3 = () => {
 
         return () => clearTimeout(timer);
     }, [examLimitMessage]);
+
+    useEffect(() => {
+        if (!isHydrated) return; 
+
+        const payload = {
+            obtlData,
+            references,
+            otherReferences
+        };
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+
+        // optional: show "Draft saved"
+        setShowDraftSaved(true);
+        setTimeout(() => setShowDraftSaved(false), 1500);
+
+    }, [obtlData, references, otherReferences]);
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] flex flex-col font-sans pb-40">
@@ -613,17 +679,17 @@ const Step3 = () => {
                         </AnimatePresence>
                     </div>
 
-                    <div ref={containerRef} className="hidden md:block overflow-x-auto max-h-[70vh] overflow-y-auto">
-                        <table className="w-full border-collapse">
+                    <div ref={containerRef} style={{ scrollBehavior: 'auto' }} className="hidden md:block overflow-x-auto max-h-[70vh] overflow-y-auto">
+                        <table className="w-full border border-slate-300 border-collapse table-auto">
                             <thead className="bg-[#fcfcfc] text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200">
                                 <tr>
                                     <th className="p-4 w-10"></th>
-                                    <th className="p-4 text-left font-black w-20">Weeks (18 Weeks) </th>
-                                    <th className="p-4 text-left font-black w-[15%]">Desired Learning Outcomes (DLOs)</th>
-                                    <th className="p-4 text-left font-black w-[10%]">Alignment to CLOs</th>
-                                    <th className="p-4 text-left font-black w-[18%]">Learning Content/ Topics</th>
+                                    <th className="p-4 text-left font-black border border-slate-300 w-20">Weeks (18 Weeks) </th>
+                                    <th className="p-4 text-left font-black border border-slate-300 w-[15%]">Desired Learning Outcomes (DLOs)</th>
+                                    <th className="p-4 text-left font-black border border-slate-300 w-[10%]">Alignment to CLOs</th>
+                                    <th className="p-4 text-left font-black border border-slate-300 w-[18%]">Learning Content/ Topics</th>
                                     <th className="p-2 text-center border-x border-slate-100 bg-slate-50/50" colSpan={3}>Instructional Delivery Design</th>
-                                    <th className="p-4 text-left font-black w-[15%]">Assessment Tasks (TAs) </th>
+                                    <th className="p-4 text-left font-black border border-slate-300 w-[15%]">Assessment Tasks (TAs) </th>
                                     <th className="p-4 w-10"></th>
                                 </tr>
                             </thead>
@@ -679,13 +745,13 @@ const Step3 = () => {
 
                                                         {row.type === 'regular' ? (
                                                             <>
-                                                                <td className="p-3 align-top"><TableCell id={row.id} field="dlo" value={row.dlo} onChange={handleCellChange} placeholder="DLO..." /></td>
-                                                                <td className="p-3 align-top"><TableCell id={row.id} field="clo" value={row.clo} onChange={handleCellChange} placeholder="CLO..." /></td>
-                                                                <td className="p-3 align-top"><TableCell id={row.id} field="topics" value={row.topics} onChange={handleCellChange} placeholder="Topics..." /></td>
-                                                                <td className="p-3 align-top"><TableCell id={row.id} field="deliveryFace" value={row.deliveryFace} onChange={handleCellChange} placeholder="Face-to-Face" isDelivery bgColor="bg-white" /></td>
-                                                                <td className="p-3 align-top"><TableCell id={row.id} field="deliverySync" value={row.deliverySync} onChange={handleCellChange} placeholder="Synchronous" isDelivery bgColor="bg-slate-50/30" /></td>
-                                                                <td className="p-3 align-top"><TableCell id={row.id} field="deliveryAsync" value={row.deliveryAsync} onChange={handleCellChange} placeholder="Asynchronous" isDelivery bgColor="bg-slate-50/30" /></td>
-                                                                <td className="p-3 align-top"><TableCell id={row.id} field="tasks" value={row.tasks} onChange={handleCellChange} placeholder="Tasks..." /></td>
+                                                                <td className="p-3 align-top border border-slate-300"><TableCell id={row.id} field="dlo" value={row.dlo} onChange={handleCellChange} placeholder="DLO..." /></td>
+                                                                <td className="p-3 align-top border border-slate-300"><TableCell id={row.id} field="clo" value={row.clo} onChange={handleCellChange} placeholder="CLO..." /></td>
+                                                                <td className="p-3 align-top border border-slate-300"><TableCell id={row.id} field="topics" value={row.topics} onChange={handleCellChange} placeholder="Topics..." /></td>
+                                                                <td className="p-3 align-top border border-slate-300"><TableCell id={row.id} field="deliveryFace" value={row.deliveryFace} onChange={handleCellChange} placeholder="Face-to-Face" isDelivery bgColor="bg-white" /></td>
+                                                                <td className="p-3 align-top border border-slate-300"><TableCell id={row.id} field="deliverySync" value={row.deliverySync} onChange={handleCellChange} placeholder="Synchronous" isDelivery bgColor="bg-slate-50/30" /></td>
+                                                                <td className="p-3 align-top border border-slate-300"><TableCell id={row.id} field="deliveryAsync" value={row.deliveryAsync} onChange={handleCellChange} placeholder="Asynchronous" isDelivery bgColor="bg-slate-50/30" /></td>
+                                                                <td className="p-3 align-top border border-slate-300"><TableCell id={row.id} field="tasks" value={row.tasks} onChange={handleCellChange} placeholder="Tasks..." /></td>
                                                             </>
                                                         ) : (
                                                             <td
@@ -968,7 +1034,7 @@ const Step3 = () => {
                                                             </tr>
                                                         </thead>
                                                     )}
-                                                    <tbody>
+                                                    <tbody className="divide-y divide-slate-100 align-top">
                                                         {pageRows.map((row) => (
                                                             <tr key={row.id} className="border-b border-black last:border-0 align-top">
                                                                 {row.type === 'regular' ? (

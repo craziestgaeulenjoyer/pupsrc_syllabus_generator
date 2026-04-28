@@ -26,7 +26,7 @@ const Step2 = () => {
     // Dynamic columns count
     const iloCount = 9;
 
-    const [plos, setPlos] = useState([
+    const defaultPlos = [
         { id: 1, label: 'Apply knowledge of computing, science, and mathematics' },
         { id: 2, label: 'Analyze problems and identify computing requirements' },
         { id: 3, label: 'Design, implement, and evaluate IT-based solutions' },
@@ -38,15 +38,18 @@ const Step2 = () => {
         { id: 9, label: 'Understand the impact of IT on society' },
         { id: 10, label: 'Manage IT projects' },
         { id: 11, label: 'Apply IT to societal issues' },
-    ]);
+    ];
 
-    const [clos, setClos] = useState([
+    const defaultClos =[
         { id: 1, text: 'Apply fundamental concepts of computing, science, and mathematics' },
         { id: 2, text: 'Analyze simple to complex computing problems' },
         { id: 3, text: 'Demonstrate proficiency in using modern computing tools' },
         { id: 4, text: 'Understand the professional, ethical, and societal impacts' },
         { id: 5, text: 'Communicate technical information effectively' },
-    ]);
+    ];
+
+    const [plos, setPlos] = useState(defaultPlos);
+    const [clos, setClos] = useState(defaultClos);
 
     const isMapped = Object.values(iloMapping).some(val => val === true) && 
                      Object.values(ploMapping).some(val => val !== null && val !== '');
@@ -132,35 +135,43 @@ const Step2 = () => {
     }, [plos, clos, iloMapping, ploMapping]);
 
     useEffect(() => {
-        const saved = localStorage.getItem('syllabus_step2');
-        if (saved) {
-            const parsed = JSON.parse(saved);
+        const saved = sessionStorage.getItem('syllabus_step2');
 
-            setPlos(parsed.plos || plos);
-            setClos(parsed.clos || clos);
-            setIloMapping(parsed.iloMapping || {});
-            setPloMapping(parsed.ploMapping || {});
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+
+                setPlos(parsed.plos?.length ? parsed.plos : defaultPlos);
+                setClos(parsed.clos?.length ? parsed.clos : defaultClos);
+                setIloMapping(parsed.iloMapping ?? {});
+                setPloMapping(parsed.ploMapping ?? {});
+            } catch (err) {
+                console.error("Failed to parse session data", err);
+
+                // fallback to defaults if corrupted
+                setPlos(defaultPlos);
+                setClos(defaultClos);
+            }
         }
     }, []);
 
     useEffect(() => {
-        const dataToSave = {
-            plos,
-            clos,
-            iloMapping,
-            ploMapping,
-        };
+        const timeout = setTimeout(() => {
+            const dataToSave = {
+                plos,
+                clos,
+                iloMapping,
+                ploMapping,
+            };
 
-        localStorage.setItem('syllabus_step2', JSON.stringify(dataToSave));
+            sessionStorage.setItem('syllabus_step2', JSON.stringify(dataToSave));
 
-        // show modal
-        setShowDraftModal(true);
+            setShowDraftModal(true);
 
-        const timer = setTimeout(() => {
-            setShowDraftModal(false);
-        }, 1200);
+            setTimeout(() => setShowDraftModal(false), 1200);
+        }, 600); // debounce
 
-        return () => clearTimeout(timer);
+        return () => clearTimeout(timeout);
     }, [plos, clos, iloMapping, ploMapping]);
 
     return (
