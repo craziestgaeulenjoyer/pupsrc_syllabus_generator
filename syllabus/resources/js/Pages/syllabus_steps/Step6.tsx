@@ -14,7 +14,12 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     const [exportFormat, setExportFormat] = useState('pdf');
     const [fileName, setFileName] = useState('INTE_30063_Syllabus');
     const [showSuccess, setShowSuccess] = useState(false);
-    const [showPreview, setShowPreview] = useState(false); 
+    const [showPreview, setShowPreview] = useState(false);
+    const [finalSyllabusData, setFinalSyllabusData] = useState<any>({});
+    const [sessionId, setSessionId] = useState<string | null>(null); 
+
+    const [headerContent, setHeaderContent] = useState('');
+    const [footerContent, setFooterContent] = useState('');
     
     const checklistOptions = [
         "Institutional and course headers verified",
@@ -44,7 +49,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         setIsGenerating(true);
         try {
             const response = await axios.post('/syllabus-generator/generate-pdf', {
-                ...allSyllabusData,
+                ...finalSyllabusData,
+                header: headerContent,
+                footer: footerContent,
                 format: exportFormat,
                 customName: fileName
             }, {
@@ -68,6 +75,68 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             setIsGenerating(false);
         }
     };
+
+    useEffect(() => {
+        const id = sessionStorage.getItem('syllabus_session_id');
+
+        if (!id) {
+            console.warn("No syllabus_session_id found. Redirecting or fallback may be needed.");
+            return;
+        }
+
+        setSessionId(id);
+    }, []);
+
+    useEffect(() => {
+        if (!sessionId) return;
+
+        try {
+            const step1 = JSON.parse(sessionStorage.getItem(`syllabus_step1_${sessionId}`) || '{}');
+            const step2 = JSON.parse(sessionStorage.getItem(`syllabus_step2_${sessionId}`) || '{}');
+            const step3 = JSON.parse(sessionStorage.getItem(`syllabus_step3_${sessionId}`) || '{}');
+            const step4 = JSON.parse(sessionStorage.getItem(`syllabus_step4_${sessionId}`) || '{}');
+            const step5 = JSON.parse(sessionStorage.getItem(`syllabus_step5_${sessionId}`) || '{}');
+
+            const merged = {
+                ...step1,
+                ...step2,
+                ...step3,
+                ...step4,
+                ...step5,
+                syllabus_session_id: sessionId
+            };
+
+            setFinalSyllabusData(merged);
+
+            console.log("Final Aggregated Data:", merged);
+
+        } catch (err) {
+            console.error("Failed to load syllabus steps", err);
+        }
+    }, [sessionId]);
+
+    useEffect(() => {
+        const savedHeader = sessionStorage.getItem('syllabus_header');
+        const savedFooter = sessionStorage.getItem('syllabus_footer');
+
+        if (savedHeader) setHeaderContent(savedHeader);
+        if (savedFooter) setFooterContent(savedFooter);
+    }, []);
+
+    useEffect(() => {
+        sessionStorage.setItem('syllabus_header', headerContent);
+        sessionStorage.setItem('syllabus_footer', footerContent);
+    }, [headerContent, footerContent]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+
+        sessionStorage.setItem(`syllabus_step6_${sessionId}`, JSON.stringify({
+            finalSyllabusData,
+            exportFormat,
+            fileName
+        }));
+    }, [finalSyllabusData, exportFormat, fileName, sessionId]);
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans selection:bg-[#800000] selection:text-white">
@@ -240,6 +309,42 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <><Download size={18} /> {checkedItems.length < checklistOptions.length ? 'Verify Checklist' : 'Generate'}</>
                                 )}
                             </button>
+                        </div>
+
+                        <div className="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 shadow-xl border border-slate-200">
+                            <h3 className="font-black text-slate-800 text-sm md:text-base mb-4 flex items-center gap-2">
+                                <FileText size={18}/> Header & Footer Editor
+                            </h3>
+
+                            <p className="text-[10px] md:text-xs text-slate-500 mb-4">
+                                Customize how your syllabus header and footer will appear in the final document (similar to editing in Word).
+                            </p>
+
+                            {/* HEADER */}
+                            <div className="mb-5">
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">
+                                    Header Content
+                                </label>
+                                <textarea
+                                    value={headerContent}
+                                    onChange={(e) => setHeaderContent(e.target.value)}
+                                    placeholder="e.g. Polytechnic University of the Philippines..."
+                                    className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:ring-1 focus:ring-[#800000] outline-none min-h-[80px]"
+                                />
+                            </div>
+
+                            {/* FOOTER */}
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">
+                                    Footer Content
+                                </label>
+                                <textarea
+                                    value={footerContent}
+                                    onChange={(e) => setFooterContent(e.target.value)}
+                                    placeholder="e.g. Contact details, copyright..."
+                                    className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:ring-1 focus:ring-[#800000] outline-none min-h-[80px]"
+                                />
+                            </div>
                         </div>
                     </motion.div>
                 </div>

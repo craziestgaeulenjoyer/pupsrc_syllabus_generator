@@ -92,10 +92,6 @@ const Step4 = () => {
         setGradingComponents([...gradingComponents, newComp]);
     };
 
-    const removeGradingComponent = (id: string) => {
-        setGradingComponents(gradingComponents.filter(c => c.id !== id));
-    };
-
     const addSubItem = (compId: string) => {
         setGradingComponents(prev => prev.map(comp => {
             if (comp.id === compId) {
@@ -129,8 +125,14 @@ const Step4 = () => {
         }));
     };
 
+    const syllabusSessionId = sessionStorage.getItem('syllabus_session_id');
+
+    const storageKey = syllabusSessionId
+    ? `syllabus_step4_${syllabusSessionId}`
+    : 'syllabus_step4';
+
     useEffect(() => {
-        const saved = sessionStorage.getItem('syllabus_step4');
+        const saved = sessionStorage.getItem(storageKey);
 
         if (saved) {
             try {
@@ -153,7 +155,7 @@ const Step4 = () => {
                 f2fLink
             };
 
-            sessionStorage.setItem('syllabus_step4', JSON.stringify(dataToSave));
+            sessionStorage.setItem(storageKey, JSON.stringify(dataToSave));
         }, 600);
 
         return () => clearTimeout(timeout);
@@ -176,7 +178,7 @@ const Step4 = () => {
                     
                     <button 
                         onClick={() => setShowPreview(true)} 
-                        className="w-full lg:w-auto bg-[#800000] hover:bg-[#600000] text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-md flex items-center justify-center gap-2 transition-all active:scale-95"
+                        className="w-full lg:w-auto bg-[#800000] hover:bg-[#600000] text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
                     >
                         <FileDown size={18}/> View Live PDF Preview
                     </button>
@@ -273,7 +275,7 @@ const Step4 = () => {
                                 </h3>
                                 <button 
                                     onClick={() => setRequirements([...requirements, { id: Date.now().toString(), text: '', clo: '' }])} 
-                                    className="bg-[#800000] text-white px-3 py-1.5 rounded-lg font-bold flex items-center justify-center gap-1 uppercase transition-all active:scale-95 w-full sm:w-auto text-[10px] md:text-[11px]"
+                                    className="bg-[#800000] hover:bg-[#600000] text-white px-3 py-1.5 rounded-lg font-bold flex items-center justify-center gap-1 uppercase transition-all active:scale-95 w-full sm:w-auto text-[10px] md:text-[11px] cursor-pointer"
                                 >
                                     <Plus size={14} className="shrink-0"/> 
                                     Add Row
@@ -292,7 +294,7 @@ const Step4 = () => {
                                                     } 
                                             className="absolute top-2 right-2 text-slate-400 hover:text-[#800000] transition-colors"
                                         >
-                                            <Trash2 size={14}/>
+                                            <Trash2 className="cursor-pointer" size={14}/>
                                         </button>
                                         <textarea 
                                             className="w-full p-3 bg-white border border-slate-200 rounded-md text-[11px] resize-none mb-2 focus:ring-1 focus:ring-[#800000] outline-none" 
@@ -320,6 +322,18 @@ const Step4 = () => {
                                     TOTAL: {totalPercentage}%
                                 </div>
                             </div>
+
+                            {totalPercentage !== 100 && (
+                                <div className={`mb-3 text-[11px] font-bold flex items-center justify-center gap-2 bg-red-100 rounded-full p-1.5
+                                    ${totalPercentage > 100 ? 'text-red-600' : 'text-amber-600'}`}>
+                                    
+                                    <AlertCircle size={14} />
+
+                                    {totalPercentage > 100 
+                                        ? `Total exceeds 100% by ${totalPercentage - 100}%. Reduce some values.` 
+                                        : `Total is missing ${100 - totalPercentage}%. Add more percentage.`}
+                                </div>
+                            )}
                             
                             <div className="space-y-4 max-h-125 overflow-y-auto pr-2 scrollbar-thin">
                                 {gradingComponents.map((comp) => (
@@ -331,14 +345,20 @@ const Step4 = () => {
                                                 placeholder="Component Name"
                                                 onChange={(e) => setGradingComponents(gradingComponents.map(c => c.id === comp.id ? {...c, label: e.target.value} : c))}
                                             />
-                                            <div className="flex items-center gap-1">
-                                                <input 
-                                                    type="number"
-                                                    className="w-12 text-right font-black text-sm text-[#800000] outline-none" 
-                                                    value={comp.percentage}
-                                                    onChange={(e) => setGradingComponents(gradingComponents.map(c => c.id === comp.id ? {...c, percentage: e.target.value} : c))}
-                                                />
-                                                <span className="text-xs font-bold text-slate-400">%</span>
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
+                                                    Editable %
+                                                </span>
+
+                                                <div className="flex items-center bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 focus-within:border-[#800000] transition-all">
+                                                    <input 
+                                                        type="number"
+                                                        className="w-14 bg-transparent text-right font-black text-base text-[#800000] outline-none"
+                                                        value={comp.percentage}
+                                                        onChange={(e) => setGradingComponents(gradingComponents.map(c => c.id === comp.id ? {...c, percentage: e.target.value} : c))}
+                                                    />
+                                                    <span className="ml-1 text-sm font-bold text-[#800000]">%</span>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -364,14 +384,14 @@ const Step4 = () => {
                                         </div>
                                         
                                         <button 
-                                                onClick={() =>
-                                                                setDeleteModal({
-                                                                    open: true,
-                                                                    type: 'component',
-                                                                    id: comp.id,
-                                                                })
-                                                            }
-                                            className="mt-3 w-full py-1 text-[9px] text-slate-400 hover:text-red-500 uppercase font-medium flex items-center justify-center gap-1"
+                                            onClick={() =>
+                                                setDeleteModal({
+                                                    open: true,
+                                                    type: 'component',
+                                                    id: comp.id,
+                                                })
+                                            }
+                                            className="mt-3 w-full py-2 text-[9px] cursor-pointer hover:bg-[#800000]/5 hover:rounded-xl text-slate-400 hover:text-red-500 uppercase font-medium flex items-center justify-center gap-1"
                                         >
                                             <Trash2 size={10}/> Remove Component
                                         </button>

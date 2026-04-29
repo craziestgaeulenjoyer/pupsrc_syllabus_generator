@@ -141,6 +141,8 @@ const Step5 = () => {
         type: 'error'
     });
 
+    const syllabusSessionId = sessionStorage.getItem('syllabus_session_id');
+
     const handleNext = () => {
         const result = validateStep5({
             classInfo,
@@ -168,7 +170,8 @@ const Step5 = () => {
         setErrors({});
         setAlert({ message: null, type: 'error' });
 
-        sessionStorage.setItem('step5Data', JSON.stringify({
+        sessionStorage.setItem('syllabus_step5', JSON.stringify({
+            syllabus_session_id: syllabusSessionId,
             classInfo,
             facultyInfo,
             rubrics,
@@ -182,6 +185,7 @@ const Step5 = () => {
     const getSigError = (sigId: number, field: string) => {
         return errors?.[`signatory_${field}_${sigId}`];
     };
+
     const [deleteModal, setDeleteModal] = useState<{
         open: boolean;
         type: 'rubric' | 'group' | 'signatory' | null;
@@ -191,6 +195,7 @@ const Step5 = () => {
         type: null,
         id: null
     });
+
     const handleConfirmDelete = () => {
         if (!deleteModal.id) return;
 
@@ -212,7 +217,7 @@ const Step5 = () => {
     };
 
     useEffect(() => {
-        const saved = sessionStorage.getItem('step5Data');
+        const saved = sessionStorage.getItem(`step5Data_${syllabusSessionId}`);
 
         if (saved) {
             const parsed = JSON.parse(saved);
@@ -246,7 +251,12 @@ const Step5 = () => {
             signatories
         };
 
-        sessionStorage.setItem('step5Data', JSON.stringify(data));
+        if (syllabusSessionId) {
+            sessionStorage.setItem(
+                `step5Data_${syllabusSessionId}`,
+                JSON.stringify(data)
+            );
+        }
     }, [classInfo, facultyInfo, rubrics, groupCriteria, signatories]);
 
     return (
@@ -820,7 +830,7 @@ const Step5 = () => {
 
                         <button
                             onClick={handleNext}
-                            className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-8 py-2.5 rounded-xl font-bold text-[10px] sm:text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 whitespace-nowrap"
+                            className="flex items-center justify-center gap-1.5 cursor-pointer sm:gap-2 px-3 sm:px-8 py-2.5 rounded-xl font-bold text-[10px] sm:text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 whitespace-nowrap"
                         >
                             Next: Finalize Syllabus
                             <ChevronRight size={16} />

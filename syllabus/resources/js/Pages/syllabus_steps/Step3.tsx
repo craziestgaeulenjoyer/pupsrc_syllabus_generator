@@ -181,10 +181,18 @@ const Step3 = () => {
         type: 'error'
     });
 
-    const user = JSON.parse(sessionStorage.getItem("syllabusUser") || "{}");
-    const userId = user?.user_id || "guest";
+    const getSyllabusSessionId = () => {
+        let sessionId = sessionStorage.getItem('syllabus_session_id');
 
-    const STORAGE_KEY = `syllabus_step3_${userId}`;
+        if (!sessionId) {
+            sessionId = crypto.randomUUID();
+            sessionStorage.setItem('syllabus_session_id', sessionId);
+        }
+
+        return sessionId;
+    };
+
+    const STORAGE_KEY = `syllabus_step3_${getSyllabusSessionId()}`;
     
     const validateStep = () => {
         const midterms = obtlData.filter(r => r.type === 'midterm');
@@ -264,7 +272,8 @@ const Step3 = () => {
         setObtlData(arranged);
 
         // OPTIONAL: save clean version
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+            syllabus_session_id: getSyllabusSessionId(),
             obtlData: arranged,
             references,
             otherReferences
@@ -532,7 +541,7 @@ const Step3 = () => {
     // useEffects
 
     useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = sessionStorage.getItem(STORAGE_KEY);
 
         if (saved) {
             const parsed = JSON.parse(saved);
@@ -558,20 +567,23 @@ const Step3 = () => {
     }, [examLimitMessage]);
 
     useEffect(() => {
-        if (!isHydrated) return; 
+        if (!isHydrated) return;
 
-        const payload = {
-            obtlData,
-            references,
-            otherReferences
-        };
+        const timeout = setTimeout(() => {
+            const payload = {
+                syllabus_session_id: getSyllabusSessionId(),
+                obtlData,
+                references,
+                otherReferences
+            };
 
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 
-        // optional: show "Draft saved"
-        setShowDraftSaved(true);
-        setTimeout(() => setShowDraftSaved(false), 1500);
+            setShowDraftSaved(true);
+            setTimeout(() => setShowDraftSaved(false), 1200);
+        }, 600);
 
+        return () => clearTimeout(timeout);
     }, [obtlData, references, otherReferences]);
 
     return (
@@ -1058,66 +1070,65 @@ const Step3 = () => {
                                                     </tbody>
                                                 </table>
                                             </div>
-                                       {/* ✅ REFERENCES ATTACHED TO TABLE */}
-                                        <div className="w-full mt-3 text-[8pt]">
-
-                                            <table className="w-full border border-black border-collapse">
-
-                                                <tbody>
-
-                                                    {/* HEADER */}
-                                                    <tr>
-                                                        <td className="p-2 font-bold uppercase">
-                                                            REFERENCES FROM THE NINOY AQUINO LEARNING AND LIBRARY RESOURCES CENTER (NALLRC)
-                                                            <br />
-                                                            OUTCOMES-BASED BOOK LISTINGS (CBBL)
-                                                        </td>
-                                                    </tr>
-
-                                                    {/* MAIN REFERENCES */}
-                                                    <tr>
-                                                        <td className="p-2">
-                                                            {references
-                                                                .filter(ref => ref.text.trim() !== "")
-                                                                .map((ref) => (
-                                                                    <p key={ref.id} className="mb-1">
-                                                                        {ref.text}
-                                                                    </p>
-                                                                ))}
-                                                        </td>
-                                                    </tr>
-
-                                                    {/* OTHER REFERENCES LABEL */}
-                                                    <tr>
-                                                        <td className="p-2 font-bold uppercase">
-                                                            OTHER REFERENCES
-                                                        </td>
-                                                    </tr>
-
-                                                    {/* OTHER REFERENCES CONTENT (NEW) */}
-                                                    <tr>
-                                                        <td className="p-2">
-                                                            {otherReferences
-                                                                .filter(ref => ref.text.trim() !== "")
-                                                                .map((ref) => (
-                                                                    <p key={ref.id} className="mb-1">
-                                                                        {ref.text}
-                                                                    </p>
-                                                                ))}
-                                                        </td>
-                                                    </tr>
-
-                                                    {/* EMPTY SPACE */}
-                                                    <tr>
-                                                        <td className="p-3 min-h-[40px]">
-                                                            &nbsp;
-                                                        </td>
-                                                    </tr>
-
-                                                </tbody>
-                                            </table>
                                         </div>
-                                        </div>
+
+                                        {pageIdx === paginatedData.length - 1 && (
+                                            <div className="w-full mt-3 text-[8pt]">
+                                                <table className="w-full border border-black border-collapse">
+                                                    <tbody>
+
+                                                        {/* HEADER */}
+                                                        <tr>
+                                                            <td className="p-2 font-bold uppercase">
+                                                                REFERENCES FROM THE NINOY AQUINO LEARNING AND LIBRARY RESOURCES CENTER (NALLRC)
+                                                                <br />
+                                                                OUTCOMES-BASED BOOK LISTINGS (CBBL)
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* MAIN REFERENCES */}
+                                                        <tr>
+                                                            <td className="p-2">
+                                                                {references
+                                                                    .filter(ref => ref.text.trim() !== "")
+                                                                    .map((ref) => (
+                                                                        <p key={ref.id} className="mb-1">
+                                                                            {ref.text}
+                                                                        </p>
+                                                                    ))}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* OTHER REFERENCES LABEL */}
+                                                        <tr>
+                                                            <td className="p-2 font-bold uppercase">
+                                                                OTHER REFERENCES
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* OTHER REFERENCES */}
+                                                        <tr>
+                                                            <td className="p-2">
+                                                                {otherReferences
+                                                                    .filter(ref => ref.text.trim() !== "")
+                                                                    .map((ref) => (
+                                                                        <p key={ref.id} className="mb-1">
+                                                                            {ref.text}
+                                                                        </p>
+                                                                    ))}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* EMPTY SPACE */}
+                                                        <tr>
+                                                            <td className="p-3 min-h-[40px]">&nbsp;</td>
+                                                        </tr>
+
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+
                                         {/* Bottom Labels  */}
                                         <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
                                             <div>

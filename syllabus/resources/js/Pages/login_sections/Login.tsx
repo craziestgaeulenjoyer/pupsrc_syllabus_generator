@@ -85,6 +85,11 @@ const Login: React.FC = () => {
             },
 
             onSuccess: () => {
+                const sessionId = crypto.randomUUID();
+
+                sessionStorage.setItem('syllabus_session_id', sessionId);
+                localStorage.setItem('syllabus_session_id', sessionId);
+
                 setAttemptsLeft(null);
             },
 

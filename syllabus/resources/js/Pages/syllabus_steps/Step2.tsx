@@ -120,6 +120,8 @@ const Step2 = () => {
         setPloMapping(prev => ({ ...prev, [key]: prev[key] === val ? null : val }));
     };
 
+    const sessionId = sessionStorage.getItem('syllabus_session_id');
+
     useEffect(() => {
         const errors = validateStep2(plos, clos, iloMapping, ploMapping);
 
@@ -135,7 +137,12 @@ const Step2 = () => {
     }, [plos, clos, iloMapping, ploMapping]);
 
     useEffect(() => {
-        const saved = sessionStorage.getItem('syllabus_step2');
+        const sessionId = sessionStorage.getItem('syllabus_session_id');
+        if (!sessionId) return;
+
+        const key = `syllabus_step2_${sessionId}`;
+
+        const saved = sessionStorage.getItem(key);
 
         if (saved) {
             try {
@@ -146,16 +153,15 @@ const Step2 = () => {
                 setIloMapping(parsed.iloMapping ?? {});
                 setPloMapping(parsed.ploMapping ?? {});
             } catch (err) {
-                console.error("Failed to parse session data", err);
-
-                // fallback to defaults if corrupted
-                setPlos(defaultPlos);
-                setClos(defaultClos);
+                console.error("Failed to parse Step 2 data", err);
             }
         }
     }, []);
 
     useEffect(() => {
+        const sessionId = sessionStorage.getItem('syllabus_session_id');
+        if (!sessionId) return;
+
         const timeout = setTimeout(() => {
             const dataToSave = {
                 plos,
@@ -164,12 +170,14 @@ const Step2 = () => {
                 ploMapping,
             };
 
-            sessionStorage.setItem('syllabus_step2', JSON.stringify(dataToSave));
+            sessionStorage.setItem(
+                `syllabus_step2_${sessionId}`,
+                JSON.stringify(dataToSave)
+            );
 
             setShowDraftModal(true);
-
             setTimeout(() => setShowDraftModal(false), 1200);
-        }, 600); // debounce
+        }, 600);
 
         return () => clearTimeout(timeout);
     }, [plos, clos, iloMapping, ploMapping]);

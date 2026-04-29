@@ -48,33 +48,28 @@ const Step1 = () => {
         if (type === 'down' && current > 0) setData('course_credit', current - 1);
     };
 
-    const getSessionId = () => {
-        let sessionId = sessionStorage.getItem('syllabus_session_id');
+    const sessionId = sessionStorage.getItem('syllabus_session_id');
 
-        if (!sessionId) {
-            sessionId = crypto.randomUUID();
-            sessionStorage.setItem('syllabus_session_id', sessionId);
-        }
+    const storageKey = sessionId
+        ? `syllabus_step1_${sessionId}`
+        : null;
 
-        return sessionId;
-    };
+    const { data, setData, post, processing, errors } = useForm(() => {
+        const saved = storageKey
+            ? sessionStorage.getItem(storageKey)
+            : null;
 
-    const storageKey = `syllabus_step1_${getSessionId()}`;
-
-    const savedData = localStorage.getItem(storageKey);
-
-    const { data, setData, post, processing, errors } = useForm (
-        savedData
-            ? JSON.parse(savedData)
+        return saved
+            ? JSON.parse(saved)
             : {
                 course_code: '',
                 course_credit: 3,
                 course_title: '',
                 pre_requisites: '',
-                co_requisites: '',  
+                co_requisites: '',
                 course_description: '',
-            }
-    );
+            };
+    });
 
     useEffect(() => {
         const hasEmptyFields =
@@ -125,8 +120,16 @@ const Step1 = () => {
     };
 
     const confirmCancel = () => {
-        localStorage.removeItem(storageKey);
-        sessionStorage.removeItem('syllabus_session_id');
+        const uuid = sessionStorage.getItem('syllabus_uuid');
+
+        if (uuid) {
+            sessionStorage.removeItem(`syllabus_step1_${uuid}`);
+            sessionStorage.removeItem(`syllabus_step2_${uuid}`);
+            sessionStorage.removeItem(`syllabus_step3_${uuid}`);
+            sessionStorage.removeItem(`syllabus_step4_${uuid}`);
+            sessionStorage.removeItem(`syllabus_step5_${uuid}`);
+            sessionStorage.removeItem(`syllabus_step6_${uuid}`);
+        }
 
         router.visit(route('dashboard'));
     };
@@ -147,23 +150,25 @@ const Step1 = () => {
             return;
         }
 
-        // ensure latest data saved
-        localStorage.setItem(storageKey, JSON.stringify(data));
+        if (!storageKey) {
+            console.warn("Missing session ID");
+            return;
+        }
+
+        sessionStorage.setItem(storageKey, JSON.stringify(data));
 
         router.visit(route('syllabus.step2'));
     };
 
     useEffect(() => {
+        if (!storageKey) return;
+
         const timeout = setTimeout(() => {
-            localStorage.setItem(storageKey, JSON.stringify(data));
+            sessionStorage.setItem(storageKey, JSON.stringify(data));
 
-            // show toast
             setShowSaveToast(true);
-
-            // hide after 2s
             setTimeout(() => setShowSaveToast(false), 2000);
-
-        }, 800); 
+        }, 1000);
 
         return () => clearTimeout(timeout);
     }, [data]);
