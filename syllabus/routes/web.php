@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Authentication_Controllers\AuthController;
 use App\Http\Controllers\Authentication_Controllers\ForgotPasswordController;
+use App\Http\Controllers\Syllabi_Controllers\SyllabusController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -58,68 +59,35 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 /* ---------------- PROTECTED ROUTES ---------------- */
 
 Route::middleware(['auth'])->group(function () {
+    Route::get('/dashboard', function () {
+        return Inertia::render('dashboard_sections/Dashboard');
+    })->name('dashboard');
 
-Route::get('/dashboard', function () {
-    return Inertia::render('dashboard_sections/Dashboard');
-})->name('dashboard');
+    /* ---------------- SYLLABUS ROUTES ---------------- */
 
-/* ---------------- SYLLABUS ROUTES ---------------- */
+    // Step Views
+    Route::get('/syllabus-generator/step-1', fn() => Inertia::render('syllabus_steps/Step1'))->name('syllabus.step1');
+    Route::get('/syllabus-generator/step-2', fn() => Inertia::render('syllabus_steps/Step2'))->name('syllabus.step2');
+    Route::get('/syllabus-generator/step-3', fn() => Inertia::render('syllabus_steps/Step3'))->name('syllabus.step3');
+    Route::get('/syllabus-generator/step-4', fn() => Inertia::render('syllabus_steps/Step4'))->name('syllabus.step4');
+    Route::get('/syllabus-generator/step-5', fn() => Inertia::render('syllabus_steps/Step5'))->name('syllabus.step5');
+    Route::get('/syllabus-generator/step-6', fn() => Inertia::render('syllabus_steps/Step6'))->name('syllabus.step6');
 
-Route::get('/syllabus-generator/step-1', function () {
-    return Inertia::render('syllabus_steps/Step1');
-})->name('syllabus.step1');
+    Route::post('/syllabus-generator/save', [SyllabusController::class, 'store'])
+        ->name('syllabus.save');
 
-Route::post('/syllabus-generator/step-1', function () {
+    /* ---------------- PDF VIEWER ROUTES ---------------- */
+    Route::get('/viewer/{id}', function ($id) {
+        $file = [
+            "id" => $id,
+            "name" => "BSIT 2026 - SYLLABUS",
+            "date" => "January 25, 2026",
+            "url" => "/sample.pdf"
+        ];
 
-// Step 1
-    return back()->with('success', 'Step 1 saved!');
-})->name('syllabus.step1.store');
-
-// Step 2
-Route::get('/syllabus-generator/step-2', function () {
-    return Inertia::render('syllabus_steps/Step2');
-})->name('syllabus.step2');
-
-// Step 3
-Route::get('/syllabus-generator/step-3', function () {
-    return Inertia::render('syllabus_steps/Step3');
-})->name('syllabus.step3');
-
-Route::post('/syllabus-generator/step-3', function () {
-    return back()->with('success', 'Weekly Plan saved!');
-})->name('syllabus.step3.store');
-
-// Step 4
-Route::get('/syllabus-generator/step-4', function () {
-    return Inertia::render('syllabus_steps/Step4'); 
-})->name('syllabus.step4');
-
-// Step 5 
-Route::get('/syllabus-generator/step-5', function () {
-    return Inertia::render('syllabus_steps/Step5'); 
-})->name('syllabus.step5');
-
-Route::post('/syllabus-generator/step-5', function () {
-    return back()->with('success', 'Syllabus successfully generated and saved!');
-})->name('syllabus.step5.store');
-
-// Step 6 
-Route::get('/syllabus-generator/step-6', function () {
-    return Inertia::render('syllabus_steps/Step6'); 
-})->name('syllabus.step6');
-
-/* ---------------- PDF VIEWER ROUTES ---------------- */
-Route::get('/viewer/{id}', function ($id) {
-    $file = [
-        "id" => $id,
-        "name" => "BSIT 2026 - SYLLABUS",
-        "date" => "January 25, 2026",
-        "url" => "/sample.pdf"
-    ];
-
-    return Inertia::render('pdf_viewer_layout/PdfViewer', [
-        'file' => $file
-    ]);
-});
+        return Inertia::render('pdf_viewer_layout/PdfViewer', [
+            'file' => $file
+        ]);
+    });
 
 });

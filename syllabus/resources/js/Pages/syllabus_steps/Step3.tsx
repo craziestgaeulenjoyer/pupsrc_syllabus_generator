@@ -692,29 +692,29 @@ const Step3 = () => {
                     </div>
 
                     <div ref={containerRef} style={{ scrollBehavior: 'auto' }} className="hidden md:block overflow-x-auto max-h-[70vh] overflow-y-auto">
-                        <table className="w-full border border-slate-300 border-collapse table-auto">
-                            <thead className="bg-[#fcfcfc] text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200">
-                                <tr>
-                                    <th className="p-4 w-10"></th>
-                                    <th className="p-4 text-left font-black border border-slate-300 w-20">Weeks (18 Weeks) </th>
-                                    <th className="p-4 text-left font-black border border-slate-300 w-[15%]">Desired Learning Outcomes (DLOs)</th>
-                                    <th className="p-4 text-left font-black border border-slate-300 w-[10%]">Alignment to CLOs</th>
-                                    <th className="p-4 text-left font-black border border-slate-300 w-[18%]">Learning Content/ Topics</th>
-                                    <th className="p-2 text-center border-x border-slate-100 bg-slate-50/50" colSpan={3}>Instructional Delivery Design</th>
-                                    <th className="p-4 text-left font-black border border-slate-300 w-[15%]">Assessment Tasks (TAs) </th>
-                                    <th className="p-4 w-10"></th>
-                                </tr>
-                            </thead>
-                            <DndContext
-                                sensors={sensors}
-                                collisionDetection={closestCenter}
-                                onDragEnd={handleDragEnd}
-                                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                        <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={handleDragEnd}
+                            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                        >
+                            <SortableContext
+                                items={obtlData.map(row => row.id)}
+                                strategy={verticalListSortingStrategy}
                             >
-                                <SortableContext
-                                    items={obtlData.map(row => row.id)}
-                                    strategy={verticalListSortingStrategy}
-                                >
+                                <table className="w-full border border-slate-300 border-collapse table-auto">
+                                    <thead className="bg-[#fcfcfc] text-slate-500 text-[10px] uppercase tracking-wider border-b border-slate-200">
+                                        <tr>
+                                            <th className="p-4 w-10"></th>
+                                            <th className="p-4 text-left font-black border border-slate-300 w-20">Weeks (18 Weeks) </th>
+                                            <th className="p-4 text-left font-black border border-slate-300 w-[15%]">Desired Learning Outcomes (DLOs)</th>
+                                            <th className="p-4 text-left font-black border border-slate-300 w-[10%]">Alignment to CLOs</th>
+                                            <th className="p-4 text-left font-black border border-slate-300 w-[18%]">Learning Content/ Topics</th>
+                                            <th className="p-2 text-center border-x border-slate-100 bg-slate-50/50" colSpan={3}>Instructional Delivery Design</th>
+                                            <th className="p-4 text-left font-black border border-slate-300 w-[15%]">Assessment Tasks (TAs) </th>
+                                            <th className="p-4 w-10"></th>
+                                        </tr>
+                                    </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {obtlData.map((row) => (
                                             <SortableRow key={row.id} row={row}>
@@ -795,9 +795,9 @@ const Step3 = () => {
                                             </SortableRow>
                                         ))}
                                     </tbody>
-                                </SortableContext>
-                            </DndContext>
-                        </table>
+                                </table>
+                            </SortableContext>
+                        </DndContext>
                     </div>
 
                     <div className="md:hidden flex flex-col divide-y divide-slate-200">
@@ -1150,7 +1150,7 @@ const Step3 = () => {
                         </motion.div>
                     </motion.div>
                 )}
-            </AnimatePresence>
+            </AnimatePresence>  
 
             <AnimatePresence>
                 {showDraftSaved && (

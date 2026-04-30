@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Head, Link, useForm, router } from '@inertiajs/react'; 
+import { Head, Link, useForm, router, usePage } from '@inertiajs/react'; 
 import { motion } from 'framer-motion';
 import { Lock, Eye, EyeOff, User, GraduationCap } from 'lucide-react';
 import { validateLogin } from '../Validation/CredentialValidation';
 import Alert from '../Validation/Alert';
 import { route } from 'ziggy-js';
+
+const { props }: any = usePage();
 
 const Login: React.FC = () => {
     const { data, setData, post, processing, errors, reset } = useForm({

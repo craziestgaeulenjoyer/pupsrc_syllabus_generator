@@ -9,36 +9,19 @@ use Throwable;
 
 class Handler extends ExceptionHandler
 {
-    protected function unauthenticated($request, AuthenticationException $exception)
+    protected function unauthenticated($request, \Illuminate\Auth\AuthenticationException $exception)
     {
-        // API / JSON requests
-        if ($request->expectsJson()) {
-            return response()->json([
-                'message' => 'Unauthenticated',
-            ], 401);
-        }
-
-        // Web / Inertia requests
-        return redirect()->route('login')
-            ->with([
-                'error' => 'Session expired. Please login again.',
-            ]);
+        return redirect()
+            ->route('login')
+            ->with('error', 'Session expired. Please login again.');
     }
 
     public function render($request, Throwable $exception)
     {
-        // CSRF / session expired
         if ($exception instanceof TokenMismatchException) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'message' => 'Session expired',
-                ], 419);
-            }
-
-            return redirect()->route('login')
-                ->with([
-                    'error' => 'Session expired. Please login again.',
-                ]);
+            return redirect()
+                ->route('login')
+                ->with('error', 'Session expired. Please login again.');
         }
 
         return parent::render($request, $exception);

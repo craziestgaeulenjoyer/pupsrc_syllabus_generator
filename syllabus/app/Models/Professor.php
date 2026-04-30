@@ -26,4 +26,9 @@ class Professor extends Authenticatable
     protected $casts = [
         'lock_until' => 'datetime',
     ];
+
+    public function syllabi()
+    {
+        return $this->hasMany(Syllabus::class);
+    }
 }
