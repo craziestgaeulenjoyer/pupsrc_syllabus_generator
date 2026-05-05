@@ -6,9 +6,9 @@ import { validateLogin } from '../Validation/CredentialValidation';
 import Alert from '../Validation/Alert';
 import { route } from 'ziggy-js';
 
-const { props }: any = usePage();
-
 const Login: React.FC = () => {
+    const { props }: any = usePage();
+    
     const { data, setData, post, processing, errors, reset } = useForm({
         email: '',
         password: '',

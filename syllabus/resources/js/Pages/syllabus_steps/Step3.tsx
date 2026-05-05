@@ -1026,6 +1026,16 @@ const Step3 = () => {
 
                                             <div className="w-full border-[1pt] border-black">
                                                 <table className="w-full border-collapse text-[8pt]">
+                                                    <colgroup>
+                                                        <col style={{ width: '6%' }} />
+                                                        <col style={{ width: '18%' }} />
+                                                        <col style={{ width: '12%' }} />
+                                                        <col style={{ width: '15%' }} />
+                                                        <col style={{ width: '10%' }} />
+                                                        <col style={{ width: '10%' }} />
+                                                        <col style={{ width: '10%' }} />
+                                                        <col style={{ width: '15%' }} />
+                                                    </colgroup>
                                                     {pageIdx === 0 && (
                                                         <thead>
                                                             <tr className="border-b border-black bg-slate-50 ">
@@ -1177,4 +1187,3 @@ const Step3 = () => {
 };
 
 export default Step3;
-

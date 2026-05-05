@@ -1,13 +1,638 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Head, Link } from '@inertiajs/react';
 import Navbar from '../navbar_layouts/Navbar'; 
 import { 
     ChevronLeft, ChevronRight, CheckCircle, FileText, 
     Download, FileJson, ShieldCheck, Info, Check,
-    FileDown, X
+    FileDown, X, AlignLeft, AlignCenter, AlignRight, AlignJustify,
+    Link2, Image, ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
+
+
+
+// ─── Rich Document Editor (Word-like toolbar, custom-built) ────────────────────
+
+const FONTS = [
+    { value: 'Times New Roman, serif', label: 'Times New Roman' },
+    { value: 'Arial, sans-serif', label: 'Arial' },
+    { value: 'Calibri, sans-serif', label: 'Calibri' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: 'Courier New, monospace', label: 'Courier New' },
+    { value: 'Verdana, sans-serif', label: 'Verdana' },
+    { value: 'Trebuchet MS, sans-serif', label: 'Trebuchet MS' },
+];
+
+const FONT_SIZES = ['8','9','10','11','12','14','16','18','20','24','28','32','36','40','48'];
+
+const COLORS = [
+    '#000000','#434343','#666666','#999999','#b7b7b7','#cccccc','#d9d9d9','#ffffff',
+    '#ff0000','#ff9900','#ffff00','#00ff00','#00ffff','#0000ff','#9900ff','#ff00ff',
+    '#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc',
+    '#800000','#783f04','#7f6000','#274e13','#0c343d','#1c4587','#20124d','#4c1130',
+];
+
+// Tooltip wrapper
+const Tip: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => {
+    const [show, setShow] = useState(false);
+    const [pos, setPos] = useState({ top: 0, left: 0 });
+    const ref = useRef<HTMLDivElement>(null);
+
+    const handleEnter = () => {
+        if (ref.current) {
+            const r = ref.current.getBoundingClientRect();
+            setPos({ top: r.bottom + 6, left: r.left + r.width / 2 });
+        }
+        setShow(true);
+    };
+
+    return (
+        <div ref={ref} onMouseEnter={handleEnter} onMouseLeave={() => setShow(false)} style={{ display: 'contents' }}>
+            {children}
+            {show && typeof document !== 'undefined' && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: pos.top,
+                        left: pos.left,
+                        transform: 'translateX(-50%)',
+                        zIndex: 99999,
+                        pointerEvents: 'none',
+                        background: '#1e293b',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                    }}
+                >
+                    {title}
+                    <div style={{
+                        position:'absolute', top:'-4px', left:'50%', transform:'translateX(-50%)',
+                        width:0, height:0,
+                        borderLeft:'4px solid transparent',
+                        borderRight:'4px solid transparent',
+                        borderBottom:'4px solid #1e293b',
+                    }}/>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Generic fixed-position dropdown (never clipped by overflow:hidden)
+interface FixedDropdownProps {
+    trigger: React.ReactNode;
+    children: React.ReactNode;
+    tooltip: string;
+}
+const FixedDropdown: React.FC<FixedDropdownProps> = ({ trigger, children, tooltip }) => {
+    const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState({ top: 0, left: 0 });
+    const triggerRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const close = (e: MouseEvent) => {
+            if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [open]);
+
+    const handleClick = () => {
+        if (triggerRef.current) {
+            const r = triggerRef.current.getBoundingClientRect();
+            setPos({ top: r.bottom + 2, left: r.left });
+        }
+        setOpen(v => !v);
+    };
+
+    return (
+        <>
+            <Tip title={tooltip}>
+                <button
+                    ref={triggerRef}
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={handleClick}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors border border-slate-200 h-7 min-w-[60px]"
+                >
+                    {trigger}
+                    <ChevronDown size={10} className="text-slate-400 shrink-0" />
+                </button>
+            </Tip>
+            {open && typeof document !== 'undefined' && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: pos.top,
+                        left: pos.left,
+                        zIndex: 99998,
+                        background: 'white',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '10px',
+                        boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+                        minWidth: '140px',
+                        maxHeight: '260px',
+                        overflowY: 'auto',
+                        padding: '4px',
+                    }}
+                >
+                    {children}
+                </div>
+            )}
+        </>
+    );
+};
+
+// Color picker dropdown
+interface ColorDropdownProps {
+    tooltip: string;
+    icon: React.ReactNode;
+    onSelect: (color: string) => void;
+}
+const ColorDropdown: React.FC<ColorDropdownProps> = ({ tooltip, icon, onSelect }) => {
+    const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState({ top: 0, left: 0 });
+    const triggerRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const close = (e: MouseEvent) => {
+            if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [open]);
+
+    const handleClick = () => {
+        if (triggerRef.current) {
+            const r = triggerRef.current.getBoundingClientRect();
+            setPos({ top: r.bottom + 2, left: r.left });
+        }
+        setOpen(v => !v);
+    };
+
+    return (
+        <>
+            <Tip title={tooltip}>
+                <button
+                    ref={triggerRef}
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={handleClick}
+                    className="flex items-center justify-center w-7 h-7 rounded text-slate-600 hover:bg-slate-200 transition-colors border border-slate-200 bg-slate-100"
+                >
+                    {icon}
+                </button>
+            </Tip>
+            {open && typeof document !== 'undefined' && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: pos.top,
+                        left: pos.left,
+                        zIndex: 99998,
+                        background: 'white',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '10px',
+                        boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+                        padding: '8px',
+                        width: '176px',
+                    }}
+                >
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px' }}>
+                        {COLORS.map(c => (
+                            <button
+                                key={c}
+                                type="button"
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => { onSelect(c); setOpen(false); }}
+                                style={{
+                                    background: c,
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '3px',
+                                    border: c === '#ffffff' ? '1px solid #e2e8f0' : 'none',
+                                    cursor: 'pointer',
+                                }}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
+// Toolbar button
+const ToolBtn: React.FC<{ title: string; active?: boolean; onClick: () => void; children: React.ReactNode }> = ({ title, active, onClick, children }) => (
+    <Tip title={title}>
+        <button
+            type="button"
+            onMouseDown={e => e.preventDefault()}
+            onClick={onClick}
+            className={`flex items-center justify-center w-7 h-7 rounded transition-colors border text-xs font-bold
+                ${active ? 'bg-[#4B6333] text-white border-[#4B6333]' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200'}`}
+        >
+            {children}
+        </button>
+    </Tip>
+);
+
+interface RichDocEditorProps {
+    label: string;
+    value: string;
+    onChange: (val: string) => void;
+    placeholder?: string;
+}
+
+const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, placeholder }) => {
+    const editorRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
+    const [currentFont, setCurrentFont] = useState('Times New Roman, serif');
+    const [currentSize, setCurrentSize] = useState('12');
+
+    // Keep track of formats on selection change
+    useEffect(() => {
+        const onSelect = () => {
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0) return;
+            setActiveFormats({
+                bold: document.queryCommandState('bold'),
+                italic: document.queryCommandState('italic'),
+                underline: document.queryCommandState('underline'),
+                justifyLeft: document.queryCommandState('justifyLeft'),
+                justifyCenter: document.queryCommandState('justifyCenter'),
+                justifyRight: document.queryCommandState('justifyRight'),
+                justifyFull: document.queryCommandState('justifyFull'),
+            });
+        };
+        document.addEventListener('selectionchange', onSelect);
+        return () => document.removeEventListener('selectionchange', onSelect);
+    }, []);
+
+    const exec = (cmd: string, val?: string) => {
+        editorRef.current?.focus();
+        document.execCommand(cmd, false, val);
+        onChange(editorRef.current?.innerHTML || '');
+    };
+
+    const handleInput = () => {
+        onChange(editorRef.current?.innerHTML || '');
+    };
+
+    // Sync innerHTML when value changes externally (initial load)
+    const lastVal = useRef('');
+    useEffect(() => {
+        if (editorRef.current && value !== lastVal.current && value !== editorRef.current.innerHTML) {
+            editorRef.current.innerHTML = value;
+            lastVal.current = value;
+        }
+    }, [value]);
+
+    // Link insertion
+    const insertLink = () => {
+        const sel = window.getSelection();
+        const selectedText = sel?.toString() || '';
+        const url = window.prompt('Enter URL:', 'https://');
+        if (url) exec('createLink', url);
+    };
+
+    // Image upload — 5 MB cap + resolution cap (max 1200×900)
+    const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+    const MAX_IMG_W = 1200;
+    const MAX_IMG_H = 900;
+
+    const insertImage = () => { fileInputRef.current?.click(); };
+    const onImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (file.size > MAX_FILE_BYTES) {
+            alert('Image is too large. Maximum file size is 5 MB.');
+            e.target.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const src = ev.target?.result as string;
+            // Cap resolution via canvas before inserting
+            const tmpImg = document.createElement('img');
+            tmpImg.onload = () => {
+                let w = tmpImg.naturalWidth;
+                let h = tmpImg.naturalHeight;
+                if (w > MAX_IMG_W || h > MAX_IMG_H) {
+                    const ratio = Math.min(MAX_IMG_W / w, MAX_IMG_H / h);
+                    w = Math.round(w * ratio);
+                    h = Math.round(h * ratio);
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d')!.drawImage(tmpImg, 0, 0, w, h);
+                const cappedSrc = canvas.toDataURL('image/png');
+                editorRef.current?.focus();
+                document.execCommand('insertImage', false, cappedSrc);
+                // Apply initial inline size so resize handles work
+                const imgs = editorRef.current?.querySelectorAll('img');
+                if (imgs) {
+                    imgs.forEach(img => {
+                        if (!img.dataset.resizable) {
+                            img.dataset.resizable = 'true';
+                            img.style.width = w + 'px';
+                            img.style.height = h + 'px';
+                            img.style.maxWidth = '100%';
+                        }
+                    });
+                }
+                onChange(editorRef.current?.innerHTML || '');
+            };
+            tmpImg.src = src;
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    // Floating resize handle rendered outside contenteditable
+    const resizeHandleRef = useRef<HTMLDivElement>(null);
+
+    const updateResizeHandle = useCallback((img: HTMLImageElement | null) => {
+        const handle = resizeHandleRef.current;
+        const container = editorRef.current;
+        if (!handle) return;
+        if (!img || !container) { handle.style.display = 'none'; return; }
+        const imgRect  = img.getBoundingClientRect();
+        const contRect = container.getBoundingClientRect();
+        handle.style.display = 'block';
+        handle.style.left = (imgRect.right  - contRect.left - 8) + 'px';
+        handle.style.top  = (imgRect.bottom - contRect.top  - 8) + 'px';
+    }, []);
+
+    // Track selected image for backspace-delete
+    const selectedImgRef = useRef<HTMLImageElement | null>(null);
+
+    // Backspace / Delete key removes selected image
+    useEffect(() => {
+        const el = editorRef.current;
+        if (!el) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if ((e.key === 'Backspace' || e.key === 'Delete') && selectedImgRef.current) {
+                e.preventDefault();
+                selectedImgRef.current.remove();
+                selectedImgRef.current = null;
+                updateResizeHandle(null);
+                onChange(el.innerHTML);
+            }
+        };
+        el.addEventListener('keydown', onKeyDown);
+        return () => el.removeEventListener('keydown', onKeyDown);
+    }, [onChange, updateResizeHandle]);
+
+    // Resize handle drag
+    useEffect(() => {
+        const handle = resizeHandleRef.current;
+        if (!handle) return;
+        const MIN_W = 20, MIN_H = 20;
+        const MAX_W = 1200, MAX_H = 900;
+
+        const onDown = (e: MouseEvent) => {
+            e.preventDefault();
+            const img = selectedImgRef.current;
+            if (!img) return;
+            const startX = e.clientX, startY = e.clientY;
+            const startW = img.offsetWidth  || img.naturalWidth;
+            const startH = img.offsetHeight || img.naturalHeight;
+            const onMove = (ev: MouseEvent) => {
+                const newW = Math.min(MAX_W, Math.max(MIN_W, startW + ev.clientX - startX));
+                const newH = Math.min(MAX_H, Math.max(MIN_H, startH + ev.clientY - startY));
+                img.style.width  = newW + 'px';
+                img.style.height = newH + 'px';
+                updateResizeHandle(img);
+            };
+            const onUp = () => {
+                if (editorRef.current) onChange(editorRef.current.innerHTML);
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        };
+        handle.addEventListener('mousedown', onDown);
+        return () => handle.removeEventListener('mousedown', onDown);
+    }, [onChange, updateResizeHandle]);
+
+    // Resizable + constrained-drag images inside the editor
+    useEffect(() => {
+        const el = editorRef.current;
+        if (!el) return;
+
+        const MAX_W = 1200, MAX_H = 900;
+
+        const clearSelection = () => {
+            el.querySelectorAll('img[data-selected]').forEach(img => {
+                (img as HTMLElement).removeAttribute('data-selected');
+                (img as HTMLElement).style.outline = '2px dashed transparent';
+            });
+            selectedImgRef.current = null;
+            updateResizeHandle(null);
+        };
+
+        const onDown = (e: MouseEvent) => {
+            const t = e.target as HTMLElement;
+            if (t.tagName !== 'IMG') { clearSelection(); return; }
+            e.preventDefault();
+            clearSelection();
+            const img = t as HTMLImageElement;
+            img.style.position = 'relative';
+            img.style.cursor = 'grabbing';
+            img.style.display = 'inline-block';
+            img.style.maxWidth = MAX_W + 'px';
+            img.style.maxHeight = MAX_H + 'px';
+
+            // Select
+            img.dataset.selected = 'true';
+            img.style.outline = '2px dashed #4B6333';
+            selectedImgRef.current = img;
+            updateResizeHandle(img);
+            el.focus();
+
+            // Drag constrained within editor container
+            const containerRect = el.getBoundingClientRect();
+            const startX = e.clientX, startY = e.clientY;
+            const offsetX = parseInt(img.style.left || '0');
+            const offsetY = parseInt(img.style.top  || '0');
+
+            const onMove = (ev: MouseEvent) => {
+                const imgW = img.offsetWidth, imgH = img.offsetHeight;
+                const newLeft = Math.max(0, Math.min(containerRect.width  - imgW, offsetX + ev.clientX - startX));
+                const newTop  = Math.max(0, Math.min(containerRect.height - imgH, offsetY + ev.clientY - startY));
+                img.style.left = newLeft + 'px';
+                img.style.top  = newTop  + 'px';
+                updateResizeHandle(img);
+            };
+            const onUp = () => {
+                img.style.cursor = 'grab';
+                onChange(el.innerHTML);
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        };
+
+        el.addEventListener('mousedown', onDown);
+        return () => el.removeEventListener('mousedown', onDown);
+    }, [onChange, updateResizeHandle]);
+
+    return (
+        <div className="space-y-2">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                {label}
+            </label>
+
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-1 px-3 py-2 bg-[#F1F5F9] border border-slate-200 rounded-t-xl border-b-slate-200">
+
+                {/* Font family */}
+                <FixedDropdown
+                    tooltip="Font Family"
+                    trigger={<span className="truncate max-w-[80px] text-[11px]">{FONTS.find(f=>f.value===currentFont)?.label ?? 'Font'}</span>}
+                >
+                    {FONTS.map(f => (
+                        <button
+                            key={f.value}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => { setCurrentFont(f.value); exec('fontName', f.value); }}
+                            className="block w-full text-left px-3 py-1.5 text-xs hover:bg-slate-100 rounded"
+                            style={{ fontFamily: f.value }}
+                        >
+                            {f.label}
+                        </button>
+                    ))}
+                </FixedDropdown>
+
+                {/* Font size */}
+                <FixedDropdown
+                    tooltip="Font Size"
+                    trigger={<span className="text-[11px] w-6 text-center">{currentSize}</span>}
+                >
+                    {FONT_SIZES.map(s => (
+                        <button
+                            key={s}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => { setCurrentSize(s); exec('fontSize', s === '8' ? '1' : s === '10' ? '2' : s === '12' ? '3' : s === '14' ? '4' : s === '18' ? '5' : s === '24' ? '6' : '7'); }}
+                            className="block w-full text-left px-3 py-1 text-xs hover:bg-slate-100 rounded"
+                        >
+                            {s}
+                        </button>
+                    ))}
+                </FixedDropdown>
+
+                <div className="w-px h-5 bg-slate-300 mx-0.5" />
+
+                {/* Bold, Italic, Underline */}
+                <ToolBtn title="Bold (Ctrl+B)" active={activeFormats.bold} onClick={() => exec('bold')}><span className="font-black text-sm">B</span></ToolBtn>
+                <ToolBtn title="Italic (Ctrl+I)" active={activeFormats.italic} onClick={() => exec('italic')}><span className="italic text-sm">I</span></ToolBtn>
+                <ToolBtn title="Underline (Ctrl+U)" active={activeFormats.underline} onClick={() => exec('underline')}><span className="underline text-sm">U</span></ToolBtn>
+
+                <div className="w-px h-5 bg-slate-300 mx-0.5" />
+
+                {/* Text Color */}
+                <ColorDropdown
+                    tooltip="Text Color"
+                    icon={<span className="text-xs font-black" style={{borderBottom:'2px solid #800000'}}>A</span>}
+                    onSelect={c => exec('foreColor', c)}
+                />
+                {/* Highlight */}
+                <ColorDropdown
+                    tooltip="Highlight Color"
+                    icon={<span className="text-xs font-black" style={{background:'#ffff00', padding:'0 2px', borderRadius:2}}>H</span>}
+                    onSelect={c => exec('hiliteColor', c)}
+                />
+
+                <div className="w-px h-5 bg-slate-300 mx-0.5" />
+
+                {/* Alignment */}
+                <ToolBtn title="Align Left" active={activeFormats.justifyLeft} onClick={() => exec('justifyLeft')}>
+                    <AlignLeft size={13}/>
+                </ToolBtn>
+                <ToolBtn title="Align Center" active={activeFormats.justifyCenter} onClick={() => exec('justifyCenter')}>
+                    <AlignCenter size={13}/>
+                </ToolBtn>
+                <ToolBtn title="Align Right" active={activeFormats.justifyRight} onClick={() => exec('justifyRight')}>
+                    <AlignRight size={13}/>
+                </ToolBtn>
+                <ToolBtn title="Justify" active={activeFormats.justifyFull} onClick={() => exec('justifyFull')}>
+                    <AlignJustify size={13}/>
+                </ToolBtn>
+
+                <div className="w-px h-5 bg-slate-300 mx-0.5" />
+
+                {/* Indent */}
+                <ToolBtn title="Decrease Indent" onClick={() => exec('outdent')}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="12" x2="9" y2="12"/><line x1="21" y1="18" x2="3" y2="18"/><polyline points="7 9 3 12 7 15"/></svg>
+                </ToolBtn>
+                <ToolBtn title="Increase Indent" onClick={() => exec('indent')}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/><polyline points="17 9 21 12 17 15"/></svg>
+                </ToolBtn>
+
+                <div className="w-px h-5 bg-slate-300 mx-0.5" />
+
+                {/* Link */}
+                <ToolBtn title="Insert Link" onClick={insertLink}>
+                    <Link2 size={13}/>
+                </ToolBtn>
+
+                {/* Image */}
+                <ToolBtn title="Insert Image" onClick={insertImage}>
+                    <Image size={13}/>
+                </ToolBtn>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onImageFile} />
+            </div>
+
+            {/* Content area + floating resize handle */}
+            <div style={{ position: 'relative' }}>
+                <div
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={handleInput}
+                    data-placeholder={placeholder}
+                    className="min-h-[120px] px-4 py-3 border border-slate-200 border-t-0 rounded-b-xl bg-white text-sm outline-none focus:ring-2 focus:ring-[#4B6333]/30 transition-all"
+                    style={{ fontFamily: 'inherit', lineHeight: 1.6, position: 'relative', overflow: 'hidden' }}
+                />
+                {/* SE resize handle — floats over the selected image corner */}
+                <div
+                    ref={resizeHandleRef}
+                    style={{
+                        display: 'none',
+                        position: 'absolute',
+                        width: 14,
+                        height: 14,
+                        background: '#4B6333',
+                        border: '2px solid white',
+                        borderRadius: 3,
+                        cursor: 'se-resize',
+                        zIndex: 10,
+                        pointerEvents: 'auto',
+                    }}
+                    title="Drag to resize"
+                />
+            </div>
+        </div>
+    );
+};
 
 const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     const [isGenerating, setIsGenerating] = useState(false);
@@ -40,6 +665,73 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         }
     };
 
+    // ─── Build clean, fully structured payload from all steps ──────────────
+    const buildFullPayload = () => {
+        if (!sessionId) return null;
+        const safeparse = (key: string) => {
+            try { return JSON.parse(sessionStorage.getItem(key) || '{}'); } catch { return {}; }
+        };
+        const s1 = safeparse(`syllabus_step1_${sessionId}`);
+        const s2 = safeparse(`syllabus_step2_${sessionId}`);
+        const s3 = safeparse(`syllabus_step3_${sessionId}`);
+        const s4 = safeparse(`syllabus_step4_${sessionId}`);
+        const s5 = safeparse(`syllabus_step5_${sessionId}`);
+
+        return {
+            syllabus_session_id: sessionId,
+            course_code: s1.course_code || '',
+            course_title: s1.course_title || '',
+
+            // Each step's raw data (for DB columns)
+            step1: s1,
+            step2: s2,
+            step3: s3,
+            step4: s4,
+            step5: s5,
+            step6: { exportFormat, fileName, header: headerContent, footer: footerContent },
+
+            // Expanded flat final_data for PDF generation backend
+            final_data: {
+                // Step 1
+                course_code:        s1.course_code        || '',
+                course_title:       s1.course_title       || '',
+                course_credit:      s1.course_credit      ?? '',
+                course_description: s1.course_description || '',
+                pre_requisites:     s1.pre_requisites     || 'None',
+                co_requisites:      s1.co_requisites      || 'None',
+
+                // Step 2
+                plos:       s2.plos       || [],
+                clos:       s2.clos       || [],
+                iloMapping: s2.iloMapping || {},
+                ploMapping: s2.ploMapping || {},
+
+                // Step 3
+                obtlData:        s3.obtlData        || [],
+                references:      s3.references      || [],
+                otherReferences: s3.otherReferences || [],
+
+                // Step 4
+                gradingComponents: s4.gradingComponents || [],
+                requirements:      s4.requirements      || [],
+                f2fLink:           s4.f2fLink           || '',
+
+                // Step 5
+                classInfo:    s5.classInfo    || {},
+                facultyInfo:  s5.facultyInfo  || {},
+                rubrics:      s5.rubrics      || [],
+                groupCriteria: s5.groupCriteria || [],
+                signatories:  s5.signatories  || [],
+
+                // Step 6 export options
+                format:     exportFormat,
+                customName: fileName,
+                header:     headerContent,
+                footer:     footerContent,
+            }
+        };
+    };
+
     const handleGenerateSyllabus = async () => {
         if (checkedItems.length < checklistOptions.length) {
             alert("Please verify all items in the checklist before generating.");
@@ -49,17 +741,15 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         setIsGenerating(true);
 
         try {
-            // SAVE FIRST
-            await saveToDatabase();
+            const payload = buildFullPayload();
+            if (!payload) { alert("Session expired. Please restart."); return; }
 
-            // THEN GENERATE PDF
-            const response = await axios.post('/syllabus-generator/generate-pdf', {
-                ...finalSyllabusData,
-                header: headerContent,
-                footer: footerContent,
-                format: exportFormat,
-                customName: fileName
-            }, {
+            // SAVE TO DB FIRST
+            await axios.post('/syllabus/save', payload);
+            console.log("Saved to DB");
+
+            // THEN GENERATE FILE (send full final_data for backend rendering)
+            const response = await axios.post('/syllabus-generator/generate-pdf', payload.final_data, {
                 responseType: 'blob',
             });
 
@@ -71,49 +761,36 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
 
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 4000);
 
         } catch (error) {
             console.error("Export failed:", error);
+            alert("Something went wrong during export. Please try again.");
         } finally {
             setIsGenerating(false);
         }
     };
 
     const saveToDatabase = async () => {
-        if (!sessionId) return;
-
+        const payload = buildFullPayload();
+        if (!payload) return;
         try {
-            const step1 = JSON.parse(sessionStorage.getItem(`syllabus_step1_${sessionId}`) || '{}');
-            const step2 = JSON.parse(sessionStorage.getItem(`syllabus_step2_${sessionId}`) || '{}');
-            const step3 = JSON.parse(sessionStorage.getItem(`syllabus_step3_${sessionId}`) || '{}');
-            const step4 = JSON.parse(sessionStorage.getItem(`syllabus_step4_${sessionId}`) || '{}');
-            const step5 = JSON.parse(sessionStorage.getItem(`syllabus_step5_${sessionId}`) || '{}');
-            const step6 = JSON.parse(sessionStorage.getItem(`syllabus_step6_${sessionId}`) || '{}');
-
-            await axios.post('/syllabus/save', {
-                session_id: sessionId,
-
-                course_code: step1.course_code || '',
-                course_title: step1.course_title || '',
-
-                step1,
-                step2,
-                step3,
-                step4,
-                step5,
-                step6,
-
-                final_data: finalSyllabusData
-            });
-
-            console.log("Saved to DB");
+            await axios.post('/syllabus/save', payload);
+            console.log("Auto-saved to DB");
         } catch (error) {
             console.error("DB Save failed:", error);
         }
     };
+
+    // Auto-save to DB whenever all checklist items are verified
+    useEffect(() => {
+        if (checkedItems.length === checklistOptions.length && sessionId) {
+            saveToDatabase();
+        }
+    }, [checkedItems, sessionId]);
 
     useEffect(() => {
         const id = sessionStorage.getItem('syllabus_session_id');
@@ -137,11 +814,11 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             const step5 = JSON.parse(sessionStorage.getItem(`syllabus_step5_${sessionId}`) || '{}');
 
             const merged = {
-                ...step1,
-                ...step2,
-                ...step3,
-                ...step4,
-                ...step5,
+                step1,
+                step2,
+                step3,
+                step4,
+                step5,
                 syllabus_session_id: sessionId
             };
 
@@ -179,6 +856,37 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans selection:bg-[#800000] selection:text-white">
+            <style dangerouslySetInnerHTML={{ __html: `
+                /* Contenteditable placeholder */
+                [contenteditable][data-placeholder]:empty::before {
+                    content: attr(data-placeholder);
+                    color: #94a3b8;
+                    pointer-events: none;
+                }
+                /* Images inside the editor */
+                [contenteditable] img {
+                    max-width: 100%;
+                    cursor: grab;
+                    outline: 2px dashed transparent;
+                    border-radius: 4px;
+                    transition: outline-color 0.2s;
+                    position: relative;
+                    display: inline-block;
+                }
+                [contenteditable] img:hover { outline-color: #4B6333; }
+                [contenteditable] img:active { cursor: grabbing; }
+                [contenteditable] img[data-selected] { outline-color: #4B6333; }
+                /* SE resize handle rendered via ::after on a wrapper — handled via JS overlay */
+                /* Custom header/footer preview strip */
+                .syllabus-custom-header,
+                .syllabus-custom-footer {
+                    font-size: 10px;
+                    padding: 4px 0;
+                    word-break: break-word;
+                }
+                .syllabus-custom-header { border-bottom: 1px solid #888; margin-bottom: 8px; }
+                .syllabus-custom-footer { border-top: 1px solid #888; margin-top: 8px; }
+            `}} />
             <Navbar />
             <Head title="SyllabiSys: Review & Export" />
 
@@ -350,43 +1058,39 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                             </button>
                         </div>
 
-                        <div className="bg-white rounded-2xl md:rounded-3xl p-6 md:p-8 shadow-xl border border-slate-200">
-                            <h3 className="font-black text-slate-800 text-sm md:text-base mb-4 flex items-center gap-2">
-                                <FileText size={18}/> Header & Footer Editor
-                            </h3>
-
-                            <p className="text-[10px] md:text-xs text-slate-500 mb-4">
-                                Customize how your syllabus header and footer will appear in the final document (similar to editing in Word).
-                            </p>
-
-                            {/* HEADER */}
-                            <div className="mb-5">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">
-                                    Header Content
-                                </label>
-                                <textarea
-                                    value={headerContent}
-                                    onChange={(e) => setHeaderContent(e.target.value)}
-                                    placeholder="e.g. Polytechnic University of the Philippines..."
-                                    className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:ring-1 focus:ring-[#800000] outline-none min-h-[80px]"
-                                />
-                            </div>
-
-                            {/* FOOTER */}
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">
-                                    Footer Content
-                                </label>
-                                <textarea
-                                    value={footerContent}
-                                    onChange={(e) => setFooterContent(e.target.value)}
-                                    placeholder="e.g. Contact details, copyright..."
-                                    className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:ring-1 focus:ring-[#800000] outline-none min-h-[80px]"
-                                />
-                            </div>
-                        </div>
                     </motion.div>
                 </div>
+
+                {/* Header & Footer Rich Editor — full width, centered below the grid */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 }}
+                    className="mt-6 md:mt-8 bg-white rounded-2xl md:rounded-3xl shadow-xl border border-slate-100 overflow-hidden"
+                >
+                    <div className="bg-[#4B6333] p-5 md:p-6 flex items-center gap-3">
+                        <FileText size={20} className="text-white" />
+                        <div>
+                            <h3 className="text-white font-black text-sm md:text-base leading-tight">Header &amp; Footer Editor</h3>
+                            <p className="text-white/70 text-[10px] md:text-xs mt-0.5">Customize how your syllabus header and footer appear in the final document — rich formatting like Word</p>
+                        </div>
+                    </div>
+
+                    <div className="p-5 md:p-8 flex flex-col gap-6 md:gap-8">
+                        <RichDocEditor
+                            label="Header Content"
+                            value={headerContent}
+                            onChange={setHeaderContent}
+                            placeholder="e.g. Polytechnic University of the Philippines, Santa Rosa Campus..."
+                        />
+                        <RichDocEditor
+                            label="Footer Content"
+                            value={footerContent}
+                            onChange={setFooterContent}
+                            placeholder="e.g. Contact details, copyright, page numbers..."
+                        />
+                    </div>
+                </motion.div>
             </main>
 
             <AnimatePresence>
@@ -477,7 +1181,64 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                         </div>
                     );
 
-                    const pageBase = "preview-container shadow-2xl font-serif text-black relative bg-white mb-8";
+                    // ─── Custom Header/Footer from editor ────────────────────────────────
+                    const CustomPageHeader = () => headerContent ? (
+                        <div
+                            className="syllabus-custom-header"
+                            dangerouslySetInnerHTML={{ __html: headerContent }}
+                        />
+                    ) : null;
+
+                    // Combined footer: PUP address + any custom footer content
+                    const CustomPageFooter = () => (
+                        <>
+                            <PupFooter />
+                            {footerContent && (
+                                <div
+                                    className="syllabus-custom-footer"
+                                    dangerouslySetInnerHTML={{ __html: footerContent }}
+                                />
+                            )}
+                        </>
+                    );
+
+                    const pageBase = "preview-container shadow-2xl font-serif text-black relative bg-white";
+
+                    // ─── Page counter (incremented inline) ───────────────────────────
+                    let _pageNum = 0;
+                    const nextPage = () => { _pageNum += 1; return _pageNum; };
+
+                    // ─── Page divider: shown between pages & before first page ───────
+                    const PageDivider = ({
+                        pageNum,
+                        step,
+                        stepNum,
+                        title,
+                        isFirst = false,
+                    }: {
+                        pageNum: number;
+                        step: number;
+                        stepNum?: string;
+                        title: string;
+                        isFirst?: boolean;
+                    }) => (
+                        <div className={`flex items-center gap-3 w-full max-w-[297mm] mx-auto ${isFirst ? 'mb-3' : 'my-4'}`}>
+                            {/* Left line */}
+                            <div className="flex-1 h-px bg-slate-500/40" />
+                            {/* Badge */}
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-600/50 shadow-sm shrink-0">
+                                <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+                                    Step {step}{stepNum ? ` · ${stepNum}` : ''}
+                                </span>
+                                <span className="w-px h-3 bg-slate-600" />
+                                <span className="text-white text-[10px] font-semibold truncate max-w-[200px]">{title}</span>
+                                <span className="w-px h-3 bg-slate-600" />
+                                <span className="text-[#fbbf24] text-[10px] font-black">Pg {pageNum}</span>
+                            </div>
+                            {/* Right line */}
+                            <div className="flex-1 h-px bg-slate-500/40" />
+                        </div>
+                    );
 
                     return (
                         <motion.div
@@ -492,6 +1253,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     margin: 0 auto;
                                     background: white;
                                     padding: 1.5rem;
+                                    border-top: 3px solid #800000;
+                                    border-bottom: 3px solid #800000;
                                 }
                                 .syllabus-table {
                                     width: 100%;
@@ -537,23 +1300,37 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                             >
                                 {/* Modal top bar */}
                                 <div className="bg-[#800000] p-3 md:p-4 flex justify-between items-center text-white shrink-0">
-                                    <span className="font-bold flex items-center gap-2 text-xs md:text-base">
-                                        <FileText size={20}/> FULL SYLLABUS PREVIEW (ALL STEPS)
-                                    </span>
+                                    <div className="flex flex-col">
+                                        <span className="font-bold flex items-center gap-2 text-xs md:text-base">
+                                            <FileText size={20}/> FULL SYLLABUS PREVIEW (ALL STEPS)
+                                        </span>
+                                        <span className="text-white/60 text-[10px] mt-0.5 hidden md:block">Pages are labeled by step number — scroll down to navigate through all sections</span>
+                                    </div>
                                     <button onClick={() => setShowPreview(false)} className="p-1 hover:bg-white/10 rounded-lg">
                                         <X size={24}/>
                                     </button>
                                 </div>
 
                                 {/* Scrollable pages */}
-                                <div className="flex-1 overflow-auto p-4 md:p-12 bg-slate-400">
+                                <div className="flex-1 overflow-auto p-4 md:p-8 bg-slate-500">
 
                                     {/* ══════════════════════════════════════════════
                                         PAGE 1 — STEP 1: Course Overview & Description
                                         (mirrors Step1.tsx preview exactly)
                                     ══════════════════════════════════════════════ */}
+                                    <PageDivider isFirst pageNum={nextPage()} step={1} title="Course Overview & Description" />
                                     <div className={pageBase}>
-                                        <PupHeader />
+                                        <CustomPageHeader />
+                                        {/* PUP Letterhead — matches Step1.tsx preview */}
+                                        <div className="flex items-start justify-start gap-4 mb-6 border-b-2 border-black pb-4">
+                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-20 h-20 object-contain" />
+                                            <div className="text-left">
+                                                <p className="text-[10px] uppercase">Republic of the Philippines</p>
+                                                <p className="font-bold text-[16px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
+                                                <p className="font-bold text-[14px]">SANTA ROSA CAMPUS</p>
+                                                <p className="italic text-[10px]">City of Santa Rosa, Laguna</p>
+                                            </div>
+                                        </div>
                                         <div className="header-yellow mb-0">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -634,15 +1411,26 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                 </tr>
                                             </tbody>
                                         </table>
-                                        <PupFooter />
+                                        <CustomPageFooter />
                                     </div>
 
                                     {/* ══════════════════════════════════════════════
                                         PAGE 2 — STEP 2: PLO/CLO Mapping Matrix
                                         (mirrors Step2.tsx preview exactly)
                                     ══════════════════════════════════════════════ */}
+                                    <PageDivider pageNum={nextPage()} step={2} title="PLO / CLO Mapping Matrix" />
                                     <div className={pageBase}>
-                                        <PupHeader />
+                                        <CustomPageHeader />
+                                        {/* PUP Letterhead */}
+                                        <div className="flex items-start justify-start gap-4 mb-4 border-b-2 border-black pb-4">
+                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-16 h-16 object-contain" />
+                                            <div className="text-left">
+                                                <p className="text-[10px] uppercase">Republic of the Philippines</p>
+                                                <p className="font-bold text-[14px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
+                                                <p className="font-bold text-[12px]">SANTA ROSA CAMPUS</p>
+                                                <p className="italic text-[10px]">City of Santa Rosa, Laguna</p>
+                                            </div>
+                                        </div>
                                         <div className="header-yellow mb-4">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -718,7 +1506,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                             </div>
                                         </div>
                                         <p className="text-[7pt] mt-2 italic">Legend: L-Learned, P-Practiced, O-Opportunity to Learn</p>
-                                        <PupFooter />
+                                        <CustomPageFooter />
                                     </div>
 
                                     {/* ══════════════════════════════════════════════
@@ -726,8 +1514,25 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         (mirrors Step3.tsx preview exactly)
                                     ══════════════════════════════════════════════ */}
                                     {paginatedObtl.map((pageRows, pageIdx) => (
-                                        <div key={pageIdx} className={pageBase}>
-                                            <PupHeader />
+                                        <React.Fragment key={pageIdx}>
+                                        <PageDivider
+                                            pageNum={nextPage()}
+                                            step={3}
+                                            stepNum={paginatedObtl.length > 1 ? `Part ${pageIdx + 1} of ${paginatedObtl.length}` : undefined}
+                                            title="Instructional Plan (OBTL)"
+                                        />
+                                        <div className={pageBase}>
+                                            <CustomPageHeader />
+                                            {/* PUP Letterhead */}
+                                            <div className="flex items-start justify-start gap-3 mb-3 border-b-2 border-black pb-3">
+                                                <img src="/images/pup_logo.png" alt="PUP Logo" className="w-14 h-14 object-contain" />
+                                                <div className="text-left">
+                                                    <p className="text-[9px] uppercase">Republic of the Philippines</p>
+                                                    <p className="font-bold text-[13px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
+                                                    <p className="font-bold text-[11px]">SANTA ROSA CAMPUS</p>
+                                                    <p className="italic text-[9px]">City of Santa Rosa, Laguna</p>
+                                                </div>
+                                            </div>
                                             <div className="header-yellow mb-4">
                                                 Bachelor of Science in Information Technology <br/>
                                                 Outcomes-Based Course Syllabus
@@ -822,8 +1627,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                     </table>
                                                 </div>
                                             )}
-                                            <PupFooter />
+                                            <CustomPageFooter />
                                         </div>
+                                        </React.Fragment>
                                     ))}
 
                                     {/* ══════════════════════════════════════════════
@@ -832,8 +1638,20 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     ══════════════════════════════════════════════ */}
 
                                     {/* Step4 Page 1: Classroom Policies */}
+                                    <PageDivider pageNum={nextPage()} step={4} stepNum="Page 1" title="Classroom Policies" />
                                     <div className={pageBase}>
-                                        <PupHeader />
+                                        <CustomPageHeader />
+                                        {/* PUP Letterhead */}
+                                        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-4 mb-2 text-center sm:text-left">
+                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-14 h-14 object-contain" />
+                                            <div>
+                                                <p className="text-[9pt] leading-tight uppercase">Republic of the Philippines</p>
+                                                <p className="font-bold text-[11pt] leading-tight">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
+                                                <p className="font-bold text-[10pt] leading-tight uppercase">SANTA ROSA CAMPUS</p>
+                                                <p className="text-[9pt] italic">City of Santa Rosa, Laguna</p>
+                                            </div>
+                                        </div>
+                                        <hr className="border-t-2 border-black mb-3" />
                                         <div className="header-yellow mb-4">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -852,13 +1670,13 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                 <tr className="align-top text-justify">
                                                     <td className="border border-black p-3 space-y-2">
                                                         <p className="font-bold text-slate-800">General Classroom Guidelines:</p>
-                                                        <p>1. Students shall attend set contact schedule ready with all the materials and outputs required to be read, discussed, and/or submitted.</p>
-                                                        <p>2. <span className="font-bold underline uppercase">Plagiarism shall not be tolerated.</span> First offense – failure in output; Second offense – failure + parent letter; Third offense – failure in course.</p>
-                                                        <p>3. Requirements shall be submitted on time. Late submissions will have deductions of no less than 0.25 per day.</p>
-                                                        <p>4. Students who have any form of disability must inform the course instructor immediately.</p>
+                                                        <p>1. Students shall attend set contact schedule ready with all the materials and outputs required to be read, discussed, and/or submitted. Students should have also read required texts at least once before its scheduled discussion.</p>
+                                                        <p>2. <span className="font-bold underline uppercase">Plagiarism shall not be tolerated.</span> The following penalties will be strictly implemented to outputs proven to contain plagiarized words, phrases, clauses, sentences, paragraphs, or ideas: First offense – automatic failure in the output; Second offense – automatic failure in the output + letter from parent/s/guardian/s that acknowledges the offense; Third offense – automatic failure in the course.</p>
+                                                        <p>3. Requirements shall be submitted on time. However, in special cases when students fail to submit requirements for some acceptable reasons, submissions will be subjected to deductions of no less than 0.25 per day.</p>
+                                                        <p>4. Students who have any form of disability must inform the course instructor immediately so that alternative arrangements may be immediately considered.</p>
                                                         <p>5. All students are expected to read and strictly observe the PUP Student Code of Conduct.</p>
                                                         {f2fLink && <p className="text-blue-700 underline break-all mt-2 text-[7.5pt]">{f2fLink}</p>}
-                                                        <p className="font-bold text-slate-800 italic pt-2">Guidelines for face-to-face:</p>
+                                                        <p className="font-bold text-slate-800 italic pt-2">Guidelines for the face-to-face delivery:</p>
                                                         <p>1. Strictly observe the minimum health protocols set by the university.</p>
                                                         <p>2. Check your schedule on the class Facebook page before going to school.</p>
                                                         <p>3. Be mindful of your classmates and teacher's time. Be alert, constructive, and responsive.</p>
@@ -866,31 +1684,43 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                     <td className="border border-black p-3 space-y-4">
                                                         <div>
                                                             <p className="font-bold text-slate-800 text-[9pt] mb-2">Synchronous Sessions:</p>
-                                                            <p>1. Check your device ahead of your scheduled synchronous meeting.</p>
+                                                            <p>1. Check your device ahead of your scheduled synchronous meeting (camera, microphone, keyboard, speakers, etc.)</p>
                                                             <p>2. Attend the synchronous class on time.</p>
                                                             <p>3. Be ready to turn on your microphone and camera anytime.</p>
                                                             <p>4. Choose a comfortable space to attend the online class.</p>
-                                                            <p>5. Click the 'raise hand' button and wait to be acknowledged before unmuting.</p>
+                                                            <p>5. Click the 'raise hand' button and wait to be acknowledged by the teacher(s) before unmuting your microphone.</p>
                                                             <p>6. Do not abuse the chatbox.</p>
                                                             <p>7. Read the assigned materials before attending the class.</p>
-                                                            <p>8. Be mindful of your classmates and teacher's time.</p>
+                                                            <p>8. Be mindful of your classmates and teacher's time. Be alert, constructive, and responsive.</p>
                                                         </div>
                                                         <div className="pt-2 border-t border-slate-200">
                                                             <p className="font-bold text-slate-800 text-[9pt] mb-2">Asynchronous Sessions:</p>
-                                                            <p>1. Study the sections and functions of the assigned LMS ahead of time.</p>
-                                                            <p>2. Check the expected submission schedule at all times.</p>
-                                                            <p>3. Ask for help from your teacher(s) and classmates when necessary.</p>
+                                                            <p>1. Study the sections and functions of the assigned learning management system (LMS) ahead of time.</p>
+                                                            <p>2. Check the expected submission/turn in schedule at all times. For some timed activities, late submission may cause deductions to your grades. For group activities, discuss the best time and platform to discuss the assignment of tasks with your groupmates.</p>
+                                                            <p>3. Ask for help from your teacher(s) and classmates when necessary. (Follow the rules on sending an effective email to your teacher. A separate discussion shall be allotted for this.)</p>
                                                         </div>
                                                     </td>
                                                 </tr>
                                             </tbody>
                                         </table>
-                                        <PupFooter />
+                                        <CustomPageFooter />
                                     </div>
 
                                     {/* Step4 Page 2: Requirements & Grading */}
+                                    <PageDivider pageNum={nextPage()} step={4} stepNum="Page 2" title="Requirements & Grading" />
                                     <div className={pageBase}>
-                                        <PupHeader />
+                                        <CustomPageHeader />
+                                        {/* PUP Letterhead */}
+                                        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-4 mb-2 text-center sm:text-left">
+                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-14 h-14 object-contain" />
+                                            <div>
+                                                <p className="text-[9pt] leading-tight uppercase">Republic of the Philippines</p>
+                                                <p className="font-bold text-[11pt] leading-tight">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
+                                                <p className="font-bold text-[10pt] leading-tight uppercase">SANTA ROSA CAMPUS</p>
+                                                <p className="text-[9pt] italic">City of Santa Rosa, Laguna</p>
+                                            </div>
+                                        </div>
+                                        <hr className="border-t-2 border-black mb-3" />
                                         <div className="header-yellow mb-4">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -928,7 +1758,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                 </div>
                                             </div>
                                         </div>
-                                        <PupFooter />
+                                        <CustomPageFooter />
                                     </div>
 
                                     {/* ══════════════════════════════════════════════
@@ -936,12 +1766,32 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         (mirrors Step5.tsx preview exactly)
                                     ══════════════════════════════════════════════ */}
                                     {paginatedRubrics.map((pageRubrics: any[], pageIdx: number) => (
-                                        <div key={pageIdx} className={pageBase}>
-                                            <PupHeader />
-                                            <div className="header-yellow mb-4">
-                                                Bachelor of Science in Information Technology <br/>
-                                                Outcomes-Based Course Syllabus
-                                            </div>
+                                        <React.Fragment key={pageIdx}>
+                                        <PageDivider
+                                            pageNum={nextPage()}
+                                            step={5}
+                                            stepNum={paginatedRubrics.length > 1 ? `Part ${pageIdx + 1} of ${paginatedRubrics.length}` : undefined}
+                                            title="Rubrics, Group Grade & Signatories"
+                                        />
+                                        <div className={pageBase}>
+                                            <CustomPageHeader />
+                                            {/* PUP Letterhead — matches Step5.tsx preview */}
+                                            <table className="w-full mb-2">
+                                                <tbody>
+                                                    <tr>
+                                                        <td className="w-16 align-top">
+                                                            <img src="/images/pup_logo.png" className="w-14" alt="PUP Logo"/>
+                                                        </td>
+                                                        <td>
+                                                            <p className="text-[8pt]">Republic of the Philippines</p>
+                                                            <p className="font-bold text-[8pt]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
+                                                            <p className="font-bold uppercase text-[8pt]">SANTA ROSA CAMPUS</p>
+                                                            <p className="italic text-[8pt]">City of Santa Rosa, Laguna</p>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                            <hr className="border-black border mb-2"/>
                                             <div className="text-[8pt]">
                                                 <p className="font-bold mb-1">
                                                     {pageIdx === 0 ? 'Part 1. ' : ''}Rubrics for Assessment (to be filled out by the assigned faculty)
@@ -1044,9 +1894,13 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                     </>
                                                 )}
                                             </div>
-                                            <PupFooter />
+                                            <CustomPageFooter />
                                         </div>
+                                        </React.Fragment>
                                     ))}
+
+                                    {/* Bottom spacer */}
+                                    <div className="h-8" />
 
                                 </div>{/* end scrollable pages */}
                             </motion.div>
