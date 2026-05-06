@@ -10,8 +10,6 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
-
-
 // ─── Rich Document Editor (Word-like toolbar, custom-built) ────────────────────
 
 const FONTS = [
@@ -253,26 +251,184 @@ interface RichDocEditorProps {
     placeholder?: string;
 }
 
+// ─── Body-level image resize/drag overlay ────────────────────────────────────
+const IMG_HANDLE_ID = 'hf-img-resize-overlay';
+
+function removeImgOverlay() {
+    const existing = document.getElementById(IMG_HANDLE_ID) as any;
+    if (existing) {
+        if (existing._stopTracking) existing._stopTracking();
+        existing.remove();
+    }
+}
+
+function attachImgOverlay(
+    img: HTMLImageElement,
+    onCommit: () => void,
+) {
+    removeImgOverlay();
+
+    const overlay = document.createElement('div') as any;
+    overlay.id = IMG_HANDLE_ID;
+    overlay.style.cssText = `position:fixed;z-index:99999;pointer-events:none;border:2px dashed #4B6333;border-radius:3px;box-sizing:border-box;`;
+
+    // ── Position overlay over the img ────────────────────────────────────────
+    function positionOverlay() {
+        const r = img.getBoundingClientRect();
+        overlay.style.left   = r.left   + 'px';
+        overlay.style.top    = r.top    + 'px';
+        overlay.style.width  = r.width  + 'px';
+        overlay.style.height = r.height + 'px';
+    }
+    positionOverlay();
+
+    const rafId = { v: 0 };
+    const track = () => { positionOverlay(); rafId.v = requestAnimationFrame(track); };
+    rafId.v = requestAnimationFrame(track);
+    overlay._stopTracking = () => cancelAnimationFrame(rafId.v);
+
+    // ── Resize handles ───────────────────────────────────────────────────────
+    const HANDLES = [
+        { id:'nw', cursor:'nw-resize', top:'-5px',            left:'-5px'            },
+        { id:'n',  cursor:'n-resize',  top:'-5px',            left:'calc(50% - 5px)' },
+        { id:'ne', cursor:'ne-resize', top:'-5px',            right:'-5px'           },
+        { id:'e',  cursor:'e-resize',  top:'calc(50% - 5px)', right:'-5px'           },
+        { id:'se', cursor:'se-resize', bottom:'-5px',         right:'-5px'           },
+        { id:'s',  cursor:'s-resize',  bottom:'-5px',         left:'calc(50% - 5px)' },
+        { id:'sw', cursor:'sw-resize', bottom:'-5px',         left:'-5px'            },
+        { id:'w',  cursor:'w-resize',  top:'calc(50% - 5px)', left:'-5px'            },
+    ] as const;
+
+    HANDLES.forEach(c => {
+        const h = document.createElement('div');
+        const pos = Object.entries(c)
+            .filter(([k]) => ['top','bottom','left','right'].includes(k))
+            .map(([k, v]) => `${k}:${v}`)
+            .join(';');
+        h.style.cssText = `position:absolute;width:10px;height:10px;background:#4B6333;border:2px solid white;border-radius:2px;cursor:${c.cursor};pointer-events:auto;box-sizing:border-box;${pos};`;
+        h.addEventListener('mousedown', (e: MouseEvent) => {
+            e.preventDefault(); e.stopPropagation();
+            overlay._stopTracking();
+            const corner = c.id;
+            const sx = e.clientX, sy = e.clientY;
+            const sw = img.offsetWidth  || img.naturalWidth;
+            const sh = img.offsetHeight || img.naturalHeight;
+            const MIN = 20, MAX = 800;
+            const onMove = (ev: MouseEvent) => {
+                const dx = ev.clientX - sx, dy = ev.clientY - sy;
+                let nw = sw, nh = sh;
+                if (corner.includes('e')) nw = Math.max(MIN, Math.min(MAX, sw + dx));
+                if (corner.includes('w')) nw = Math.max(MIN, Math.min(MAX, sw - dx));
+                if (corner.includes('s')) nh = Math.max(MIN, Math.min(MAX, sh + dy));
+                if (corner.includes('n')) nh = Math.max(MIN, Math.min(MAX, sh - dy));
+                img.style.width  = nw + 'px';
+                img.style.height = nh + 'px';
+                positionOverlay();
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup',   onUp);
+                onCommit();
+                // restart tracking
+                rafId.v = requestAnimationFrame(track);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup',   onUp);
+        });
+        overlay.appendChild(h);
+    });
+
+    // ── ✥ Move handle — drags the img's left/top within the editor ───────────
+    const moveHandle = document.createElement('div');
+    moveHandle.title = 'Drag to reposition';
+    moveHandle.textContent = '✥';
+    moveHandle.style.cssText = `
+        position:absolute;top:-16px;left:50%;transform:translateX(-50%);
+        width:20px;height:20px;line-height:20px;text-align:center;
+        background:#4B6333;color:white;border-radius:50%;
+        font-size:13px;font-weight:bold;cursor:grab;pointer-events:auto;user-select:none;
+    `;
+
+    moveHandle.addEventListener('mousedown', (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        moveHandle.style.cursor = 'grabbing';
+        document.body.style.userSelect = 'none';
+        overlay._stopTracking();
+
+        const editor = img.offsetParent as HTMLElement | null; // the position:relative editor div
+        if (!editor) return;
+
+        const startImgLeft = parseInt(img.style.left || '0', 10);
+        const startImgTop  = parseInt(img.style.top  || '0', 10);
+        const startMx = e.clientX;
+        const startMy = e.clientY;
+
+        const onMove = (ev: MouseEvent) => {
+            const dx = ev.clientX - startMx;
+            const dy = ev.clientY - startMy;
+            img.style.left = (startImgLeft + dx) + 'px';
+            img.style.top  = (startImgTop  + dy) + 'px';
+            positionOverlay();
+        };
+
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup',   onUp);
+            moveHandle.style.cursor = 'grab';
+            document.body.style.userSelect = '';
+            onCommit();
+            // restart tracking
+            rafId.v = requestAnimationFrame(track);
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup',   onUp);
+    });
+    overlay.appendChild(moveHandle);
+
+    document.body.appendChild(overlay);
+}
+
 const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, placeholder }) => {
-    const editorRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const editorRef      = useRef<HTMLDivElement>(null);
+    const fileInputRef   = useRef<HTMLInputElement>(null);
+    const selectedImgRef = useRef<HTMLImageElement | null>(null);
     const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
     const [currentFont, setCurrentFont] = useState('Times New Roman, serif');
     const [currentSize, setCurrentSize] = useState('12');
 
-    // Keep track of formats on selection change
+    // Keep track of formats on selection change — only when THIS editor is focused
+    const isFocusedRef = useRef(false);
+    useEffect(() => {
+        const el = editorRef.current;
+        if (!el) return;
+        const onFocusIn  = () => { isFocusedRef.current = true; };
+        const onFocusOut = (e: FocusEvent) => {
+            // Stay "focused" if focus moved to the overlay handles
+            const overlay = document.getElementById(IMG_HANDLE_ID);
+            if (overlay && overlay.contains(e.relatedTarget as Node)) return;
+            isFocusedRef.current = false;
+        };
+        el.addEventListener('focusin',  onFocusIn);
+        el.addEventListener('focusout', onFocusOut as EventListener);
+        return () => {
+            el.removeEventListener('focusin',  onFocusIn);
+            el.removeEventListener('focusout', onFocusOut as EventListener);
+        };
+    }, []);
+
     useEffect(() => {
         const onSelect = () => {
-            const sel = window.getSelection();
-            if (!sel || sel.rangeCount === 0) return;
+            if (!isFocusedRef.current) return; // ignore events from the other editor
             setActiveFormats({
-                bold: document.queryCommandState('bold'),
-                italic: document.queryCommandState('italic'),
-                underline: document.queryCommandState('underline'),
-                justifyLeft: document.queryCommandState('justifyLeft'),
+                bold:          document.queryCommandState('bold'),
+                italic:        document.queryCommandState('italic'),
+                underline:     document.queryCommandState('underline'),
+                justifyLeft:   document.queryCommandState('justifyLeft'),
                 justifyCenter: document.queryCommandState('justifyCenter'),
-                justifyRight: document.queryCommandState('justifyRight'),
-                justifyFull: document.queryCommandState('justifyFull'),
+                justifyRight:  document.queryCommandState('justifyRight'),
+                justifyFull:   document.queryCommandState('justifyFull'),
             });
         };
         document.addEventListener('selectionchange', onSelect);
@@ -280,9 +436,20 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
     }, []);
 
     const exec = (cmd: string, val?: string) => {
-        editorRef.current?.focus();
-        document.execCommand(cmd, false, val);
-        onChange(editorRef.current?.innerHTML || '');
+        const el = editorRef.current;
+        if (!el) return;
+        el.focus();
+        // Use styleWithCSS for color commands so they produce inline styles (more reliable)
+        if (cmd === 'foreColor' || cmd === 'backColor' || cmd === 'hiliteColor') {
+            document.execCommand('styleWithCSS', false, 'true');
+            // Normalize highlight command — backColor is universally supported
+            const actualCmd = cmd === 'hiliteColor' ? 'backColor' : cmd;
+            document.execCommand(actualCmd, false, val);
+            document.execCommand('styleWithCSS', false, 'false');
+        } else {
+            document.execCommand(cmd, false, val);
+        }
+        onChange(el.innerHTML || '');
     };
 
     const handleInput = () => {
@@ -292,206 +459,215 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
     // Sync innerHTML when value changes externally (initial load)
     const lastVal = useRef('');
     useEffect(() => {
-        if (editorRef.current && value !== lastVal.current && value !== editorRef.current.innerHTML) {
-            editorRef.current.innerHTML = value;
-            lastVal.current = value;
+        if (editorRef.current) {
+            editorRef.current.innerHTML = value || '';
         }
     }, [value]);
 
-    // Link insertion
+    // ── Link modal state ────────────────────────────────────────────────────
+    const [linkModalOpen, setLinkModalOpen] = useState(false);
+    const [linkUrl, setLinkUrl] = useState('https://');
+    const [linkText, setLinkText] = useState('');
+    const savedRangeRef = useRef<Range | null>(null);
+
     const insertLink = () => {
+        const el = editorRef.current;
+        if (!el) return;
+        el.focus();
         const sel = window.getSelection();
-        const selectedText = sel?.toString() || '';
-        const url = window.prompt('Enter URL:', 'https://');
-        if (url) exec('createLink', url);
+        if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            savedRangeRef.current = range.cloneRange();
+            // Pre-fill link text from selection
+            setLinkText(sel.toString() || '');
+        } else {
+            savedRangeRef.current = null;
+            setLinkText('');
+        }
+        setLinkUrl('https://');
+        setLinkModalOpen(true);
     };
 
-    // Image upload — 5 MB cap + resolution cap (max 1200×900)
-    const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
-    const MAX_IMG_W = 1200;
-    const MAX_IMG_H = 900;
+    const confirmInsertLink = () => {
+        const el = editorRef.current;
+        if (!el || !linkUrl.trim()) { setLinkModalOpen(false); return; }
+        el.focus();
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        if (savedRangeRef.current) sel?.addRange(savedRangeRef.current);
+        const url = linkUrl.trim();
+        if (linkText.trim()) {
+            // Insert an anchor with custom text
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = linkText.trim();
+            const range = savedRangeRef.current;
+            if (range) {
+                range.deleteContents();
+                range.insertNode(a);
+                const afterRange = document.createRange();
+                afterRange.setStartAfter(a);
+                afterRange.collapse(true);
+                sel?.removeAllRanges();
+                sel?.addRange(afterRange);
+            } else {
+                el.appendChild(a);
+            }
+        } else {
+            document.execCommand('createLink', false, url);
+            // Make link open in new tab
+            el.querySelectorAll(`a[href="${url}"]`).forEach(a => {
+                (a as HTMLAnchorElement).target = '_blank';
+                (a as HTMLAnchorElement).rel = 'noopener noreferrer';
+            });
+        }
+        onChange(el.innerHTML);
+        setLinkModalOpen(false);
+    };
 
+    // ── Font size — wrap selection in a <span style="font-size: Xpx"> ─────────
+    const applyFontSize = (px: string) => {
+        const el = editorRef.current;
+        if (!el) return;
+        el.focus();
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        const range = sel.getRangeAt(0);
+        if (range.collapsed) {
+            // No selection — just update currentSize so next typed chars inherit it.
+            // We insert a zero-width span as a font-size carrier.
+            const span = document.createElement('span');
+            span.style.fontSize = px + 'px';
+            span.innerHTML = '&#8203;'; // zero-width space
+            range.insertNode(span);
+            range.setStartAfter(span);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } else {
+            // Wrap selected content in a font-size span
+            const span = document.createElement('span');
+            span.style.fontSize = px + 'px';
+            try {
+                range.surroundContents(span);
+            } catch {
+                // surroundContents fails for partial selections across elements;
+                // fall back to extracting then wrapping
+                const extracted = range.extractContents();
+                span.appendChild(extracted);
+                range.insertNode(span);
+            }
+            // Restore selection over the new span
+            const newRange = document.createRange();
+            newRange.selectNodeContents(span);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+        }
+        onChange(el.innerHTML);
+    };
+
+    // ── Image upload ─────────────────────────────────────────────────────────
+    const MAX_FILE_BYTES = 5 * 1024 * 1024;
     const insertImage = () => { fileInputRef.current?.click(); };
+
     const onImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-
-        if (file.size > MAX_FILE_BYTES) {
-            alert('Image is too large. Maximum file size is 5 MB.');
-            e.target.value = '';
-            return;
-        }
-
+        if (file.size > MAX_FILE_BYTES) { alert('Image is too large (max 5 MB).'); e.target.value = ''; return; }
         const reader = new FileReader();
         reader.onload = (ev) => {
             const src = ev.target?.result as string;
-            // Cap resolution via canvas before inserting
-            const tmpImg = document.createElement('img');
-            tmpImg.onload = () => {
-                let w = tmpImg.naturalWidth;
-                let h = tmpImg.naturalHeight;
-                if (w > MAX_IMG_W || h > MAX_IMG_H) {
-                    const ratio = Math.min(MAX_IMG_W / w, MAX_IMG_H / h);
-                    w = Math.round(w * ratio);
-                    h = Math.round(h * ratio);
-                }
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                canvas.getContext('2d')!.drawImage(tmpImg, 0, 0, w, h);
-                const cappedSrc = canvas.toDataURL('image/png');
-                editorRef.current?.focus();
-                document.execCommand('insertImage', false, cappedSrc);
-                // Apply initial inline size so resize handles work
-                const imgs = editorRef.current?.querySelectorAll('img');
-                if (imgs) {
-                    imgs.forEach(img => {
-                        if (!img.dataset.resizable) {
-                            img.dataset.resizable = 'true';
-                            img.style.width = w + 'px';
-                            img.style.height = h + 'px';
-                            img.style.maxWidth = '100%';
-                        }
-                    });
-                }
-                onChange(editorRef.current?.innerHTML || '');
+            const tmp = document.createElement('img');
+            tmp.onload = () => {
+                let w = tmp.naturalWidth, h = tmp.naturalHeight;
+                // Scale to a reasonable default size
+                const MAX_W = 180, MAX_H = 100;
+                const ratio = Math.min(MAX_W / w, MAX_H / h, 1);
+                w = Math.round(w * ratio); h = Math.round(h * ratio);
+
+                const el = editorRef.current;
+                if (!el) return;
+
+                // Position image absolutely within the editor (which is position:relative).
+                // Default placement: top-left with a small offset so it's clearly visible.
+                const img = document.createElement('img');
+                img.src = src;
+                img.dataset.hfImg = 'true';
+                img.draggable = false;
+                img.style.cssText =
+                    `position:absolute;left:8px;top:8px;` +
+                    `width:${w}px;height:${h}px;` +
+                    `cursor:default;outline:none;border-radius:3px;` +
+                    `z-index:5;-webkit-user-drag:none;`;
+
+                el.appendChild(img);
+                onChange(el.innerHTML);
             };
-            tmpImg.src = src;
+            tmp.src = src;
         };
         reader.readAsDataURL(file);
         e.target.value = '';
     };
 
-    // Floating resize handle rendered outside contenteditable
-    const resizeHandleRef = useRef<HTMLDivElement>(null);
-
-    const updateResizeHandle = useCallback((img: HTMLImageElement | null) => {
-        const handle = resizeHandleRef.current;
-        const container = editorRef.current;
-        if (!handle) return;
-        if (!img || !container) { handle.style.display = 'none'; return; }
-        const imgRect  = img.getBoundingClientRect();
-        const contRect = container.getBoundingClientRect();
-        handle.style.display = 'block';
-        handle.style.left = (imgRect.right  - contRect.left - 8) + 'px';
-        handle.style.top  = (imgRect.bottom - contRect.top  - 8) + 'px';
-    }, []);
-
-    // Track selected image for backspace-delete
-    const selectedImgRef = useRef<HTMLImageElement | null>(null);
-
-    // Backspace / Delete key removes selected image
+    // ── Image selection: click to select, Backspace/Delete to remove ─────────
     useEffect(() => {
         const el = editorRef.current;
         if (!el) return;
+
+        const deselect = () => {
+            if (selectedImgRef.current) {
+                selectedImgRef.current.style.outline = 'none';
+                selectedImgRef.current = null;
+            }
+            removeImgOverlay();
+        };
+
+        const onMouseDown = (e: MouseEvent) => {
+            const t = e.target as HTMLElement;
+            if (t.tagName === 'IMG' && (t as HTMLImageElement).dataset.hfImg === 'true') {
+                deselect();
+                const img = t as HTMLImageElement;
+                selectedImgRef.current = img;
+                img.style.outline = '2px dashed #4B6333';
+                attachImgOverlay(
+                    img,
+                    () => { onChange(el.innerHTML); },  // onResize / onChange
+                );
+            } else {
+                deselect();
+            }
+        };
+
         const onKeyDown = (e: KeyboardEvent) => {
             if ((e.key === 'Backspace' || e.key === 'Delete') && selectedImgRef.current) {
                 e.preventDefault();
                 selectedImgRef.current.remove();
                 selectedImgRef.current = null;
-                updateResizeHandle(null);
+                removeImgOverlay();
                 onChange(el.innerHTML);
             }
         };
-        el.addEventListener('keydown', onKeyDown);
-        return () => el.removeEventListener('keydown', onKeyDown);
-    }, [onChange, updateResizeHandle]);
 
-    // Resize handle drag
-    useEffect(() => {
-        const handle = resizeHandleRef.current;
-        if (!handle) return;
-        const MIN_W = 20, MIN_H = 20;
-        const MAX_W = 1200, MAX_H = 900;
-
-        const onDown = (e: MouseEvent) => {
-            e.preventDefault();
-            const img = selectedImgRef.current;
-            if (!img) return;
-            const startX = e.clientX, startY = e.clientY;
-            const startW = img.offsetWidth  || img.naturalWidth;
-            const startH = img.offsetHeight || img.naturalHeight;
-            const onMove = (ev: MouseEvent) => {
-                const newW = Math.min(MAX_W, Math.max(MIN_W, startW + ev.clientX - startX));
-                const newH = Math.min(MAX_H, Math.max(MIN_H, startH + ev.clientY - startY));
-                img.style.width  = newW + 'px';
-                img.style.height = newH + 'px';
-                updateResizeHandle(img);
-            };
-            const onUp = () => {
-                if (editorRef.current) onChange(editorRef.current.innerHTML);
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
-            };
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
-        };
-        handle.addEventListener('mousedown', onDown);
-        return () => handle.removeEventListener('mousedown', onDown);
-    }, [onChange, updateResizeHandle]);
-
-    // Resizable + constrained-drag images inside the editor
-    useEffect(() => {
-        const el = editorRef.current;
-        if (!el) return;
-
-        const MAX_W = 1200, MAX_H = 900;
-
-        const clearSelection = () => {
-            el.querySelectorAll('img[data-selected]').forEach(img => {
-                (img as HTMLElement).removeAttribute('data-selected');
-                (img as HTMLElement).style.outline = '2px dashed transparent';
-            });
-            selectedImgRef.current = null;
-            updateResizeHandle(null);
+        // Deselect when editor loses focus (but not to the overlay handles)
+        const onBlur = (e: FocusEvent) => {
+            const overlay = document.getElementById(IMG_HANDLE_ID);
+            if (overlay && overlay.contains(e.relatedTarget as Node)) return;
+            deselect();
         };
 
-        const onDown = (e: MouseEvent) => {
-            const t = e.target as HTMLElement;
-            if (t.tagName !== 'IMG') { clearSelection(); return; }
-            e.preventDefault();
-            clearSelection();
-            const img = t as HTMLImageElement;
-            img.style.position = 'relative';
-            img.style.cursor = 'grabbing';
-            img.style.display = 'inline-block';
-            img.style.maxWidth = MAX_W + 'px';
-            img.style.maxHeight = MAX_H + 'px';
+        el.addEventListener('mousedown', onMouseDown);
+        el.addEventListener('keydown',   onKeyDown);
+        el.addEventListener('blur',      onBlur as EventListener, true);
 
-            // Select
-            img.dataset.selected = 'true';
-            img.style.outline = '2px dashed #4B6333';
-            selectedImgRef.current = img;
-            updateResizeHandle(img);
-            el.focus();
-
-            // Drag constrained within editor container
-            const containerRect = el.getBoundingClientRect();
-            const startX = e.clientX, startY = e.clientY;
-            const offsetX = parseInt(img.style.left || '0');
-            const offsetY = parseInt(img.style.top  || '0');
-
-            const onMove = (ev: MouseEvent) => {
-                const imgW = img.offsetWidth, imgH = img.offsetHeight;
-                const newLeft = Math.max(0, Math.min(containerRect.width  - imgW, offsetX + ev.clientX - startX));
-                const newTop  = Math.max(0, Math.min(containerRect.height - imgH, offsetY + ev.clientY - startY));
-                img.style.left = newLeft + 'px';
-                img.style.top  = newTop  + 'px';
-                updateResizeHandle(img);
-            };
-            const onUp = () => {
-                img.style.cursor = 'grab';
-                onChange(el.innerHTML);
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
-            };
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
+        return () => {
+            el.removeEventListener('mousedown', onMouseDown);
+            el.removeEventListener('keydown',   onKeyDown);
+            el.removeEventListener('blur',      onBlur as EventListener, true);
+            removeImgOverlay();
         };
-
-        el.addEventListener('mousedown', onDown);
-        return () => el.removeEventListener('mousedown', onDown);
-    }, [onChange, updateResizeHandle]);
+    }, [onChange]);
 
     return (
         <div className="space-y-2">
@@ -531,7 +707,7 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                             key={s}
                             type="button"
                             onMouseDown={e => e.preventDefault()}
-                            onClick={() => { setCurrentSize(s); exec('fontSize', s === '8' ? '1' : s === '10' ? '2' : s === '12' ? '3' : s === '14' ? '4' : s === '18' ? '5' : s === '24' ? '6' : '7'); }}
+                            onClick={() => { setCurrentSize(s); applyFontSize(s); }}
                             className="block w-full text-left px-3 py-1 text-xs hover:bg-slate-100 rounded"
                         >
                             {s}
@@ -601,35 +777,109 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onImageFile} />
             </div>
 
-            {/* Content area + floating resize handle */}
-            <div style={{ position: 'relative' }}>
+            {/* Content area — position:relative so images can be freely placed inside */}
+            <div
+                ref={editorRef}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={handleInput}
+                data-placeholder={placeholder}
+                className="min-h-[140px] px-4 py-3 border border-slate-200 border-t-0 rounded-b-xl bg-white text-sm outline-none focus:ring-2 focus:ring-[#4B6333]/30 transition-all"
+                style={{ fontFamily: 'inherit', lineHeight: 1.6, position: 'relative' }}
+            />
+
+            {/* Link Modal */}
+            {linkModalOpen && (
                 <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleInput}
-                    data-placeholder={placeholder}
-                    className="min-h-[120px] px-4 py-3 border border-slate-200 border-t-0 rounded-b-xl bg-white text-sm outline-none focus:ring-2 focus:ring-[#4B6333]/30 transition-all"
-                    style={{ fontFamily: 'inherit', lineHeight: 1.6, position: 'relative', overflow: 'hidden' }}
-                />
-                {/* SE resize handle — floats over the selected image corner */}
-                <div
-                    ref={resizeHandleRef}
                     style={{
-                        display: 'none',
-                        position: 'absolute',
-                        width: 14,
-                        height: 14,
-                        background: '#4B6333',
-                        border: '2px solid white',
-                        borderRadius: 3,
-                        cursor: 'se-resize',
-                        zIndex: 10,
-                        pointerEvents: 'auto',
+                        position: 'fixed', inset: 0, zIndex: 100000,
+                        background: 'rgba(0,0,0,0.45)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
-                    title="Drag to resize"
-                />
-            </div>
+                    onMouseDown={e => { if (e.target === e.currentTarget) setLinkModalOpen(false); }}
+                >
+                    <div style={{
+                        background: 'white', borderRadius: '14px', padding: '24px 28px',
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.25)', minWidth: '340px', maxWidth: '90vw',
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                            <span style={{ fontWeight: 800, fontSize: '15px', color: '#1e293b' }}>Insert Link</span>
+                            <button
+                                type="button"
+                                onClick={() => setLinkModalOpen(false)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px' }}
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Display Text (optional)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={linkText}
+                                    onChange={e => setLinkText(e.target.value)}
+                                    placeholder="Link label (leave blank to use selection)"
+                                    style={{
+                                        width: '100%', padding: '8px 12px', borderRadius: '8px',
+                                        border: '1.5px solid #e2e8f0', fontSize: '13px', outline: 'none',
+                                        boxSizing: 'border-box',
+                                    }}
+                                    onFocus={e => (e.target.style.borderColor = '#4B6333')}
+                                    onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    URL <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <input
+                                    type="url"
+                                    value={linkUrl}
+                                    onChange={e => setLinkUrl(e.target.value)}
+                                    placeholder="https://example.com"
+                                    autoFocus
+                                    style={{
+                                        width: '100%', padding: '8px 12px', borderRadius: '8px',
+                                        border: '1.5px solid #e2e8f0', fontSize: '13px', outline: 'none',
+                                        boxSizing: 'border-box',
+                                    }}
+                                    onFocus={e => (e.target.style.borderColor = '#4B6333')}
+                                    onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                                    onKeyDown={e => { if (e.key === 'Enter') confirmInsertLink(); if (e.key === 'Escape') setLinkModalOpen(false); }}
+                                />
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
+                            <button
+                                type="button"
+                                onClick={() => setLinkModalOpen(false)}
+                                style={{
+                                    padding: '8px 18px', borderRadius: '8px', border: '1.5px solid #e2e8f0',
+                                    background: 'white', color: '#64748b', fontWeight: 700, fontSize: '13px', cursor: 'pointer',
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmInsertLink}
+                                disabled={!linkUrl.trim() || linkUrl === 'https://'}
+                                style={{
+                                    padding: '8px 22px', borderRadius: '8px', border: 'none',
+                                    background: '#4B6333', color: 'white', fontWeight: 700, fontSize: '13px',
+                                    cursor: !linkUrl.trim() || linkUrl === 'https://' ? 'not-allowed' : 'pointer',
+                                    opacity: !linkUrl.trim() || linkUrl === 'https://' ? 0.5 : 1,
+                                }}
+                            >
+                                Insert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -667,18 +917,25 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
     // ─── Build clean, fully structured payload from all steps ──────────────
     const buildFullPayload = () => {
-        if (!sessionId) return null;
+        const id = sessionIdRef.current;
+        if (!id) return null;
         const safeparse = (key: string) => {
             try { return JSON.parse(sessionStorage.getItem(key) || '{}'); } catch { return {}; }
         };
-        const s1 = safeparse(`syllabus_step1_${sessionId}`);
-        const s2 = safeparse(`syllabus_step2_${sessionId}`);
-        const s3 = safeparse(`syllabus_step3_${sessionId}`);
-        const s4 = safeparse(`syllabus_step4_${sessionId}`);
-        const s5 = safeparse(`syllabus_step5_${sessionId}`);
+        const s1 = safeparse(`syllabus_step1_${id}`);
+        const s2 = safeparse(`syllabus_step2_${id}`);
+        const s3 = safeparse(`syllabus_step3_${id}`);
+        const s4 = safeparse(`syllabus_step4_${id}`);
+        const s5 = safeparse(`syllabus_step5_${id}`);
+
+        // Always read from refs so we get the latest values even if state is stale
+        const curHeader = headerRef.current;
+        const curFooter = footerRef.current;
+        const curFormat = exportFormatRef.current;
+        const curFileName = fileNameRef.current;
 
         return {
-            syllabus_session_id: sessionId,
+            syllabus_session_id: id,
             course_code: s1.course_code || '',
             course_title: s1.course_title || '',
 
@@ -688,7 +945,10 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             step3: s3,
             step4: s4,
             step5: s5,
-            step6: { exportFormat, fileName, header: headerContent, footer: footerContent },
+            step6: { exportFormat: curFormat, fileName: curFileName, header: curHeader, footer: curFooter },
+
+            header: curHeader || '',
+        footer: curFooter || '',
 
             // Expanded flat final_data for PDF generation backend
             final_data: {
@@ -717,17 +977,17 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 f2fLink:           s4.f2fLink           || '',
 
                 // Step 5
-                classInfo:    s5.classInfo    || {},
-                facultyInfo:  s5.facultyInfo  || {},
-                rubrics:      s5.rubrics      || [],
+                classInfo:     s5.classInfo     || {},
+                facultyInfo:   s5.facultyInfo   || {},
+                rubrics:       s5.rubrics       || [],
                 groupCriteria: s5.groupCriteria || [],
-                signatories:  s5.signatories  || [],
+                signatories:   s5.signatories   || [],
 
                 // Step 6 export options
-                format:     exportFormat,
-                customName: fileName,
-                header:     headerContent,
-                footer:     footerContent,
+                format:     curFormat,
+                customName: curFileName,
+                header:     curHeader,
+                footer:     curFooter,
             }
         };
     };
@@ -745,7 +1005,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             if (!payload) { alert("Session expired. Please restart."); return; }
 
             // SAVE TO DB FIRST
-            await axios.post('/syllabus/save', payload);
+            await axios.post('/syllabus-generator/save', payload);
             console.log("Saved to DB");
 
             // THEN GENERATE FILE (send full final_data for backend rendering)
@@ -778,7 +1038,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         const payload = buildFullPayload();
         if (!payload) return;
         try {
-            await axios.post('/syllabus/save', payload);
+            await axios.post('/syllabus-generator/save', payload);
             console.log("Auto-saved to DB");
         } catch (error) {
             console.error("DB Save failed:", error);
@@ -831,28 +1091,97 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         }
     }, [sessionId]);
 
-    useEffect(() => {
-        const savedHeader = sessionStorage.getItem('syllabus_header');
-        const savedFooter = sessionStorage.getItem('syllabus_footer');
-
-        if (savedHeader) setHeaderContent(savedHeader);
-        if (savedFooter) setFooterContent(savedFooter);
-    }, []);
-
-    useEffect(() => {
-        sessionStorage.setItem('syllabus_header', headerContent);
-        sessionStorage.setItem('syllabus_footer', footerContent);
-    }, [headerContent, footerContent]);
+    const hasLoadedRef = useRef(false);
 
     useEffect(() => {
         if (!sessionId) return;
 
-        sessionStorage.setItem(`syllabus_step6_${sessionId}`, JSON.stringify({
-            finalSyllabusData,
-            exportFormat,
-            fileName
+        hasLoadedRef.current = false;
+
+        let loadedHeader = '';
+        let loadedFooter = '';
+
+        const savedHeader = sessionStorage.getItem(`syllabus_header_${sessionId}`);
+        const savedFooter = sessionStorage.getItem(`syllabus_footer_${sessionId}`);
+
+        if (savedHeader !== null) loadedHeader = savedHeader;
+        if (savedFooter !== null) loadedFooter = savedFooter;
+
+        try {
+            const saved = JSON.parse(sessionStorage.getItem(`syllabus_step6_${sessionId}`) || '{}');
+    
+            if (saved.exportFormat) setExportFormat(saved.exportFormat);
+            if (saved.fileName) setFileName(saved.fileName);
+
+            // Always sync header/footer from dedicated storage
+            const savedHeader = sessionStorage.getItem(`syllabus_header_${sessionId}`);
+            const savedFooter = sessionStorage.getItem(`syllabus_footer_${sessionId}`);
+
+            if (saved) {
+            const parsed = JSON.parse(saved);
+
+            // 🔥 FORCE OVERRIDE (this is the fix)
+            parsed.header = savedHeader || parsed.header || '';
+            parsed.footer = savedFooter || parsed.footer || '';
+
+            // apply to refs/state
+            headerRef.current = parsed.header;
+            footerRef.current = parsed.footer;
+
+            setHeaderContent(parsed.header);
+            setFooterContent(parsed.footer);
+
+            // (keep your existing assignments here)
+            }
+        } catch {}
+
+        setHeaderContent(loadedHeader);
+        setFooterContent(loadedFooter);
+
+        setTimeout(() => {
+            hasLoadedRef.current = true;
+        }, 0);
+    }, [sessionId]);
+
+    // Refs mirror the latest state so persistStep6 never closes over stale values
+    const sessionIdRef    = useRef(sessionId);
+    const headerRef       = useRef(headerContent);
+    const footerRef       = useRef(footerContent);
+    const exportFormatRef = useRef(exportFormat);
+    const fileNameRef     = useRef(fileName);
+    const finalDataRef    = useRef(finalSyllabusData);
+
+    useEffect(() => { sessionIdRef.current    = sessionId; },         [sessionId]);
+    useEffect(() => { headerRef.current       = headerContent; },     [headerContent]);
+    useEffect(() => { footerRef.current       = footerContent; },     [footerContent]);
+    useEffect(() => { exportFormatRef.current = exportFormat; },      [exportFormat]);
+    useEffect(() => { fileNameRef.current     = fileName; },          [fileName]);
+    useEffect(() => { finalDataRef.current    = finalSyllabusData; }, [finalSyllabusData]);
+
+    // Stable persist — skipped until hasLoadedRef is true
+    const persistStep6 = useCallback(() => {
+        const id = sessionIdRef.current;
+        if (!id || !hasLoadedRef.current) return;
+        if (headerRef.current === '' && footerRef.current === '') return;
+        sessionStorage.setItem(`syllabus_step6_${id}`, JSON.stringify({
+            finalSyllabusData: finalDataRef.current,
+            exportFormat:      exportFormatRef.current,
+            fileName:          fileNameRef.current,
+            header: sessionStorage.getItem(`syllabus_header_${id}`) || headerRef.current || '',
+            footer: sessionStorage.getItem(`syllabus_footer_${id}`) || footerRef.current || '',
         }));
-    }, [finalSyllabusData, exportFormat, fileName, sessionId]);
+    }, []);
+
+    // Trigger persist on every relevant state change
+    useEffect(() => {
+        if (!sessionId) return;
+        sessionStorage.setItem(`syllabus_header_${sessionId}`, headerContent);
+    }, [headerContent, sessionId]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+        sessionStorage.setItem(`syllabus_footer_${sessionId}`, footerContent);
+    }, [footerContent, sessionId]);
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans selection:bg-[#800000] selection:text-white">
@@ -863,20 +1192,21 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     color: #94a3b8;
                     pointer-events: none;
                 }
-                /* Images inside the editor */
-                [contenteditable] img {
-                    max-width: 100%;
-                    cursor: grab;
-                    outline: 2px dashed transparent;
-                    border-radius: 4px;
-                    transition: outline-color 0.2s;
-                    position: relative;
-                    display: inline-block;
+                /* Images inside the editor — freely positioned, absolute within the editor */
+                [contenteditable] img[data-hf-img] {
+                    position: absolute;
+                    cursor: default;
+                    border-radius: 3px;
+                    -webkit-user-drag: none;
+                    user-drag: none;
+                    z-index: 5;
                 }
-                [contenteditable] img:hover { outline-color: #4B6333; }
-                [contenteditable] img:active { cursor: grabbing; }
-                [contenteditable] img[data-selected] { outline-color: #4B6333; }
-                /* SE resize handle rendered via ::after on a wrapper — handled via JS overlay */
+                /* Preview rendering of hf images */
+                .syllabus-custom-header img[data-hf-img],
+                .syllabus-custom-footer img[data-hf-img] {
+                    position: absolute;
+                    border-radius: 3px;
+                }
                 /* Custom header/footer preview strip */
                 .syllabus-custom-header,
                 .syllabus-custom-footer {
@@ -1152,54 +1482,23 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     if (paginatedRubrics.length === 0) paginatedRubrics.push([]);
 
                     // ─── Shared sub-components ───────────────────────────────────────
-                    const PupHeader = () => (
-                        <div className="flex items-start justify-start gap-4 mb-6 border-b-2 border-black pb-4">
-                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-20 h-20 object-contain" />
-                            <div className="text-left">
-                                <p className="text-[10px] uppercase">Republic of the Philippines</p>
-                                <p className="font-bold text-[16px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                <p className="font-bold text-[14px]">SANTA ROSA CAMPUS</p>
-                                <p className="italic text-[10px]">City of Santa Rosa, Laguna</p>
-                            </div>
-                        </div>
-                    );
 
-                    const PupFooter = () => (
-                        <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
-                            <div>
-                                <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
-                                <p>Direct Line: 0961-8023780</p>
-                                <p>Website: https://pupsrc101.school.blog/ | Email: starosa@pup.edu.ph</p>
-                            </div>
-                            <div className="text-right flex flex-col items-end gap-1">
-                                <div className="flex gap-2">
-                                    <img src="/images/iso_logo.png" alt="ISO" className="h-8 opacity-70" />
-                                    <img src="/images/ajb_logo.png" alt="AJB" className="h-8 opacity-70" />
-                                </div>
-                                <p className="font-bold text-black not-italic uppercase">THE COUNTRY'S 1st POLYTECHNIC U</p>
-                            </div>
-                        </div>
-                    );
-
-                    // ─── Custom Header/Footer from editor ────────────────────────────────
-                    const CustomPageHeader = () => headerContent ? (
+                    // ─── Custom Header/Footer from editor — these are the ONLY header/footer on each page ──
+                    // The user designs exactly what appears: their logo, text, signature, etc.
+                    const CustomPageHeader = () => (
                         <div
                             className="syllabus-custom-header"
-                            dangerouslySetInnerHTML={{ __html: headerContent }}
+                            style={{ position: 'relative', minHeight: headerContent ? undefined : '0px' }}
+                            dangerouslySetInnerHTML={{ __html: headerContent || '' }}
                         />
-                    ) : null;
+                    );
 
-                    // Combined footer: PUP address + any custom footer content
                     const CustomPageFooter = () => (
-                        <>
-                            <PupFooter />
-                            {footerContent && (
-                                <div
-                                    className="syllabus-custom-footer"
-                                    dangerouslySetInnerHTML={{ __html: footerContent }}
-                                />
-                            )}
-                        </>
+                        <div
+                            className="syllabus-custom-footer"
+                            style={{ position: 'relative', minHeight: footerContent ? undefined : '0px' }}
+                            dangerouslySetInnerHTML={{ __html: footerContent || '' }}
+                        />
                     );
 
                     const pageBase = "preview-container shadow-2xl font-serif text-black relative bg-white";
@@ -1292,6 +1591,46 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         width: 250%;
                                     }
                                 }
+                                /* ── Custom header/footer — user-designed, appears on every page ── */
+                                .syllabus-custom-header {
+                                    font-size: 11px;
+                                    line-height: 1.5;
+                                    margin-bottom: 10px;
+                                    word-break: break-word;
+                                    position: relative;
+                                    display: block;
+                                    min-height: 4px;
+                                }
+                                .syllabus-custom-header:not(:empty) {
+                                    padding-bottom: 8px;
+                                    border-bottom: 1.5px solid #aaa;
+                                }
+                                .syllabus-custom-footer {
+                                    font-size: 11px;
+                                    line-height: 1.5;
+                                    margin-top: 10px;
+                                    word-break: break-word;
+                                    position: relative;
+                                    display: block;
+                                    min-height: 4px;
+                                }
+                                .syllabus-custom-footer:not(:empty) {
+                                    padding-top: 8px;
+                                    border-top: 1.5px solid #aaa;
+                                }
+                                /* Images in custom header/footer: position:absolute is respected
+                                   because the container is position:relative */
+                                .syllabus-custom-header img[data-hf-img],
+                                .syllabus-custom-footer img[data-hf-img] {
+                                    position: absolute;
+                                    border-radius: 3px;
+                                    max-width: none;
+                                }
+                                /* Pass-through font sizes written by applyFontSize (span style) */
+                                .syllabus-custom-header span[style],
+                                .syllabus-custom-footer span[style] {
+                                    display: inline;
+                                }
                             `}} />
 
                             <motion.div
@@ -1321,16 +1660,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider isFirst pageNum={nextPage()} step={1} title="Course Overview & Description" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
-                                        {/* PUP Letterhead — matches Step1.tsx preview */}
-                                        <div className="flex items-start justify-start gap-4 mb-6 border-b-2 border-black pb-4">
-                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-20 h-20 object-contain" />
-                                            <div className="text-left">
-                                                <p className="text-[10px] uppercase">Republic of the Philippines</p>
-                                                <p className="font-bold text-[16px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                <p className="font-bold text-[14px]">SANTA ROSA CAMPUS</p>
-                                                <p className="italic text-[10px]">City of Santa Rosa, Laguna</p>
-                                            </div>
-                                        </div>
                                         <div className="header-yellow mb-0">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -1421,16 +1750,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider pageNum={nextPage()} step={2} title="PLO / CLO Mapping Matrix" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
-                                        {/* PUP Letterhead */}
-                                        <div className="flex items-start justify-start gap-4 mb-4 border-b-2 border-black pb-4">
-                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-16 h-16 object-contain" />
-                                            <div className="text-left">
-                                                <p className="text-[10px] uppercase">Republic of the Philippines</p>
-                                                <p className="font-bold text-[14px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                <p className="font-bold text-[12px]">SANTA ROSA CAMPUS</p>
-                                                <p className="italic text-[10px]">City of Santa Rosa, Laguna</p>
-                                            </div>
-                                        </div>
                                         <div className="header-yellow mb-4">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -1523,16 +1842,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         />
                                         <div className={pageBase}>
                                             <CustomPageHeader />
-                                            {/* PUP Letterhead */}
-                                            <div className="flex items-start justify-start gap-3 mb-3 border-b-2 border-black pb-3">
-                                                <img src="/images/pup_logo.png" alt="PUP Logo" className="w-14 h-14 object-contain" />
-                                                <div className="text-left">
-                                                    <p className="text-[9px] uppercase">Republic of the Philippines</p>
-                                                    <p className="font-bold text-[13px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                    <p className="font-bold text-[11px]">SANTA ROSA CAMPUS</p>
-                                                    <p className="italic text-[9px]">City of Santa Rosa, Laguna</p>
-                                                </div>
-                                            </div>
                                             <div className="header-yellow mb-4">
                                                 Bachelor of Science in Information Technology <br/>
                                                 Outcomes-Based Course Syllabus
@@ -1641,17 +1950,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider pageNum={nextPage()} step={4} stepNum="Page 1" title="Classroom Policies" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
-                                        {/* PUP Letterhead */}
-                                        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-4 mb-2 text-center sm:text-left">
-                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-14 h-14 object-contain" />
-                                            <div>
-                                                <p className="text-[9pt] leading-tight uppercase">Republic of the Philippines</p>
-                                                <p className="font-bold text-[11pt] leading-tight">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                <p className="font-bold text-[10pt] leading-tight uppercase">SANTA ROSA CAMPUS</p>
-                                                <p className="text-[9pt] italic">City of Santa Rosa, Laguna</p>
-                                            </div>
-                                        </div>
-                                        <hr className="border-t-2 border-black mb-3" />
                                         <div className="header-yellow mb-4">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -1710,17 +2008,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider pageNum={nextPage()} step={4} stepNum="Page 2" title="Requirements & Grading" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
-                                        {/* PUP Letterhead */}
-                                        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-4 mb-2 text-center sm:text-left">
-                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-14 h-14 object-contain" />
-                                            <div>
-                                                <p className="text-[9pt] leading-tight uppercase">Republic of the Philippines</p>
-                                                <p className="font-bold text-[11pt] leading-tight">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                <p className="font-bold text-[10pt] leading-tight uppercase">SANTA ROSA CAMPUS</p>
-                                                <p className="text-[9pt] italic">City of Santa Rosa, Laguna</p>
-                                            </div>
-                                        </div>
-                                        <hr className="border-t-2 border-black mb-3" />
                                         <div className="header-yellow mb-4">
                                             Bachelor of Science in Information Technology <br/>
                                             Outcomes-Based Course Syllabus
@@ -1775,22 +2062,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         />
                                         <div className={pageBase}>
                                             <CustomPageHeader />
-                                            {/* PUP Letterhead — matches Step5.tsx preview */}
-                                            <table className="w-full mb-2">
-                                                <tbody>
-                                                    <tr>
-                                                        <td className="w-16 align-top">
-                                                            <img src="/images/pup_logo.png" className="w-14" alt="PUP Logo"/>
-                                                        </td>
-                                                        <td>
-                                                            <p className="text-[8pt]">Republic of the Philippines</p>
-                                                            <p className="font-bold text-[8pt]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                            <p className="font-bold uppercase text-[8pt]">SANTA ROSA CAMPUS</p>
-                                                            <p className="italic text-[8pt]">City of Santa Rosa, Laguna</p>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
                                             <hr className="border-black border mb-2"/>
                                             <div className="text-[8pt]">
                                                 <p className="font-bold mb-1">
