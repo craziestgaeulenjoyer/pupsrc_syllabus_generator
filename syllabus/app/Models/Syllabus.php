@@ -13,7 +13,10 @@ class Syllabus extends Model
 
     protected $fillable = [
         'professor_id',
-        'syllabus_session_id',
+        'session_id',           // matches the actual DB column name
+
+        'course_code',
+        'course_title',
 
         'step1',
         'step2',
@@ -22,14 +25,16 @@ class Syllabus extends Model
         'step5',
         'step6',
 
-        'final_data',
+        'final_data',           // text column — stored as JSON string
 
         'file_name',
         'export_format',
     ];
 
     /**
-     * Cast JSON fields into arrays automatically
+     * Cast JSON columns into arrays automatically.
+     * Note: final_data is a plain text column so it is NOT cast here —
+     * the controller encodes/decodes it manually.
      */
     protected $casts = [
         'step1' => 'array',
@@ -38,7 +43,6 @@ class Syllabus extends Model
         'step4' => 'array',
         'step5' => 'array',
         'step6' => 'array',
-        'final_data' => 'array',
     ];
 
     /**

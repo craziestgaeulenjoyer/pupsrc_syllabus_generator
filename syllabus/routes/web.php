@@ -7,31 +7,27 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 /* ---------------- AUTHENTICATION ROUTES ---------------- */
-// GET route
 Route::get('/', function () {
     return redirect()->route('login');
 });
 
 Route::get('/login', function () {
     return Inertia::render('login_sections/Login');
-})->name('login'); 
+})->name('login');
 
-// POST route
 Route::post('/login', [AuthController::class, 'login'])
     ->name('login.attempt')
     ->middleware('throttle:5,1');
 
-// Forgot Password 
+// Forgot Password
 Route::get('/forgot-password', fn() => Inertia::render('login_sections/ForgotPassword'))->name('password.request');
 Route::post('/forgot-password', [ForgotPasswordController::class, 'sendOtp'])->name('password.email');
 
 // Verify OTP
 Route::get('/verify-otp', function () {
-
     if (!session('otp_sent')) {
         return redirect()->route('password.request');
     }
-
     return Inertia::render('login_sections/VerifyOTP', [
         'email' => session('otp_email')
     ]);
@@ -39,13 +35,11 @@ Route::get('/verify-otp', function () {
 
 Route::post('/verify-otp', [ForgotPasswordController::class, 'verifyOtp'])->name('otp.verify');
 
-// Resets Password
+// Reset Password
 Route::get('/reset-password', function () {
-
     if (!session('otp_verified')) {
         return redirect()->route('password.request');
     }
-
     return Inertia::render('login_sections/UpdatePassword', [
         'email' => session('otp_email')
     ]);
@@ -53,7 +47,7 @@ Route::get('/reset-password', function () {
 
 Route::post('/reset-password', [ForgotPasswordController::class, 'resetPassword'])->name('password.update');
 
-// Logout 
+// Logout
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 /* ---------------- PROTECTED ROUTES ---------------- */
@@ -73,21 +67,20 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/syllabus-generator/step-5', fn() => Inertia::render('syllabus_steps/Step5'))->name('syllabus.step5');
     Route::get('/syllabus-generator/step-6', fn() => Inertia::render('syllabus_steps/Step6'))->name('syllabus.step6');
 
+    // Save syllabus (all steps + header/footer)
     Route::post('/syllabus-generator/save', [SyllabusController::class, 'store'])
         ->name('syllabus.save');
 
     /* ---------------- PDF VIEWER ROUTES ---------------- */
     Route::get('/viewer/{id}', function ($id) {
         $file = [
-            "id" => $id,
+            "id"   => $id,
             "name" => "BSIT 2026 - SYLLABUS",
             "date" => "January 25, 2026",
-            "url" => "/sample.pdf"
+            "url"  => "/sample.pdf"
         ];
-
         return Inertia::render('pdf_viewer_layout/PdfViewer', [
             'file' => $file
         ]);
     });
-
 });

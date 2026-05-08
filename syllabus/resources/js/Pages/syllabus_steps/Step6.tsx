@@ -91,23 +91,29 @@ const FixedDropdown: React.FC<FixedDropdownProps> = ({ trigger, children, toolti
     const [open, setOpen] = useState(false);
     const [pos, setPos] = useState({ top: 0, left: 0 });
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const portalRef  = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!open) return;
         const close = (e: MouseEvent) => {
-            if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
-                setOpen(false);
-            }
+            const t = e.target as Node;
+            if (
+                (triggerRef.current && triggerRef.current.contains(t)) ||
+                (portalRef.current  && portalRef.current.contains(t))
+            ) return;
+            setOpen(false);
         };
         document.addEventListener('mousedown', close);
         return () => document.removeEventListener('mousedown', close);
     }, [open]);
 
-    const handleClick = () => {
-        if (triggerRef.current) {
-            const r = triggerRef.current.getBoundingClientRect();
-            setPos({ top: r.bottom + 2, left: r.left });
-        }
+    // Prevent any mousedown inside the portal from stealing focus from the editor
+    const stopFocusSteal = (e: React.MouseEvent) => e.preventDefault();
+
+    const handleTriggerMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault(); // don't blur the editor
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setPos({ top: r.bottom + 2, left: r.left });
         setOpen(v => !v);
     };
 
@@ -117,8 +123,7 @@ const FixedDropdown: React.FC<FixedDropdownProps> = ({ trigger, children, toolti
                 <button
                     ref={triggerRef}
                     type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={handleClick}
+                    onMouseDown={handleTriggerMouseDown}
                     className="flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors border border-slate-200 h-7 min-w-[60px]"
                 >
                     {trigger}
@@ -127,6 +132,8 @@ const FixedDropdown: React.FC<FixedDropdownProps> = ({ trigger, children, toolti
             </Tip>
             {open && typeof document !== 'undefined' && (
                 <div
+                    ref={portalRef}
+                    onMouseDown={stopFocusSteal}
                     style={{
                         position: 'fixed',
                         top: pos.top,
@@ -159,21 +166,26 @@ const ColorDropdown: React.FC<ColorDropdownProps> = ({ tooltip, icon, onSelect }
     const [open, setOpen] = useState(false);
     const [pos, setPos] = useState({ top: 0, left: 0 });
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const portalRef  = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!open) return;
         const close = (e: MouseEvent) => {
-            if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) setOpen(false);
+            const t = e.target as Node;
+            if (
+                (triggerRef.current && triggerRef.current.contains(t)) ||
+                (portalRef.current  && portalRef.current.contains(t))
+            ) return;
+            setOpen(false);
         };
         document.addEventListener('mousedown', close);
         return () => document.removeEventListener('mousedown', close);
     }, [open]);
 
-    const handleClick = () => {
-        if (triggerRef.current) {
-            const r = triggerRef.current.getBoundingClientRect();
-            setPos({ top: r.bottom + 2, left: r.left });
-        }
+    const handleTriggerMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault(); // don't blur the editor
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setPos({ top: r.bottom + 2, left: r.left });
         setOpen(v => !v);
     };
 
@@ -183,8 +195,7 @@ const ColorDropdown: React.FC<ColorDropdownProps> = ({ tooltip, icon, onSelect }
                 <button
                     ref={triggerRef}
                     type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={handleClick}
+                    onMouseDown={handleTriggerMouseDown}
                     className="flex items-center justify-center w-7 h-7 rounded text-slate-600 hover:bg-slate-200 transition-colors border border-slate-200 bg-slate-100"
                 >
                     {icon}
@@ -192,6 +203,8 @@ const ColorDropdown: React.FC<ColorDropdownProps> = ({ tooltip, icon, onSelect }
             </Tip>
             {open && typeof document !== 'undefined' && (
                 <div
+                    ref={portalRef}
+                    onMouseDown={e => e.preventDefault()}
                     style={{
                         position: 'fixed',
                         top: pos.top,
@@ -398,29 +411,65 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
     const [currentFont, setCurrentFont] = useState('Times New Roman, serif');
     const [currentSize, setCurrentSize] = useState('12');
 
-    // Keep track of formats on selection change — only when THIS editor is focused
+    // ── Persist the last known selection ─────────────────────────────────────
+    const savedSelRef = useRef<Range | null>(null);
+
+    const saveSelection = useCallback(() => {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            // Only save if the range is inside our editor
+            if (editorRef.current?.contains(range.commonAncestorContainer)) {
+                savedSelRef.current = range.cloneRange();
+            }
+        }
+    }, []);
+
+    const restoreSelection = useCallback(() => {
+        const el = editorRef.current;
+        if (!el) return;
+        el.focus();
+        const saved = savedSelRef.current;
+        if (!saved) return;
+        try {
+            const sel = window.getSelection();
+            if (!sel) return;
+            sel.removeAllRanges();
+            sel.addRange(saved.cloneRange());
+        } catch (_) { /* range may have gone stale */ }
+    }, []);
+
+    // Track focus state — stays true even while toolbar dropdowns are open
+    // because those use onMouseDown preventDefault (no focus change)
     const isFocusedRef = useRef(false);
     useEffect(() => {
         const el = editorRef.current;
         if (!el) return;
         const onFocusIn  = () => { isFocusedRef.current = true; };
         const onFocusOut = (e: FocusEvent) => {
-            // Stay "focused" if focus moved to the overlay handles
+            // Don't mark unfocused if focus moved to a toolbar portal element
+            // (those use onMouseDown preventDefault so focus never actually leaves,
+            //  but add this guard just in case)
             const overlay = document.getElementById(IMG_HANDLE_ID);
             if (overlay && overlay.contains(e.relatedTarget as Node)) return;
             isFocusedRef.current = false;
         };
+        // Save selection on every mouseup inside the editor (catches click-drag selections)
+        const onMouseUp = () => { if (isFocusedRef.current) saveSelection(); };
         el.addEventListener('focusin',  onFocusIn);
         el.addEventListener('focusout', onFocusOut as EventListener);
+        el.addEventListener('mouseup',  onMouseUp);
         return () => {
             el.removeEventListener('focusin',  onFocusIn);
             el.removeEventListener('focusout', onFocusOut as EventListener);
+            el.removeEventListener('mouseup',  onMouseUp);
         };
-    }, []);
+    }, [saveSelection]);
 
     useEffect(() => {
-        const onSelect = () => {
-            if (!isFocusedRef.current) return; // ignore events from the other editor
+        const onSelChange = () => {
+            if (!isFocusedRef.current) return;
+            saveSelection();
             setActiveFormats({
                 bold:          document.queryCommandState('bold'),
                 italic:        document.queryCommandState('italic'),
@@ -430,143 +479,77 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                 justifyRight:  document.queryCommandState('justifyRight'),
                 justifyFull:   document.queryCommandState('justifyFull'),
             });
+            // Read font-size from the anchor node's computed style
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                let node: Node | null = sel.getRangeAt(0).commonAncestorContainer;
+                while (node && node !== editorRef.current) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const fs = (node as HTMLElement).style?.fontSize;
+                        if (fs) {
+                            const px = parseFloat(fs);
+                            if (!isNaN(px)) { setCurrentSize(String(Math.round(px))); break; }
+                        }
+                    }
+                    node = node.parentNode;
+                }
+            }
         };
-        document.addEventListener('selectionchange', onSelect);
-        return () => document.removeEventListener('selectionchange', onSelect);
-    }, []);
+        document.addEventListener('selectionchange', onSelChange);
+        return () => document.removeEventListener('selectionchange', onSelChange);
+    }, [saveSelection]);
 
-    const exec = (cmd: string, val?: string) => {
+    // ── Execute a document command, always restoring the saved selection first ─
+    const exec = useCallback((cmd: string, val?: string) => {
         const el = editorRef.current;
         if (!el) return;
-        el.focus();
-        // Use styleWithCSS for color commands so they produce inline styles (more reliable)
-        if (cmd === 'foreColor' || cmd === 'backColor' || cmd === 'hiliteColor') {
+        restoreSelection();
+        if (cmd === 'foreColor' || cmd === 'hiliteColor') {
             document.execCommand('styleWithCSS', false, 'true');
-            // Normalize highlight command — backColor is universally supported
-            const actualCmd = cmd === 'hiliteColor' ? 'backColor' : cmd;
-            document.execCommand(actualCmd, false, val);
+            document.execCommand(cmd === 'hiliteColor' ? 'backColor' : 'foreColor', false, val);
             document.execCommand('styleWithCSS', false, 'false');
         } else {
             document.execCommand(cmd, false, val);
         }
         onChange(el.innerHTML || '');
-    };
+        // Re-save selection after command (selection may have shifted)
+        requestAnimationFrame(saveSelection);
+    }, [restoreSelection, saveSelection, onChange]);
 
     const handleInput = () => {
         onChange(editorRef.current?.innerHTML || '');
     };
 
+    // ── Dynamically expand the editor to always contain all absolute images ──
+    const updateEditorMinHeight = useCallback(() => {
+        const el = editorRef.current;
+        if (!el) return;
+        let requiredHeight = 140; // base minimum
+        el.querySelectorAll<HTMLImageElement>('img[data-hf-img]').forEach(img => {
+            const bottom = img.offsetTop + img.offsetHeight + 16; // 16px padding below
+            if (bottom > requiredHeight) requiredHeight = bottom;
+        });
+        el.style.minHeight = requiredHeight + 'px';
+    }, []);
+
     // Sync innerHTML when value changes externally (initial load)
     const lastVal = useRef('');
     useEffect(() => {
-        if (editorRef.current) {
-            editorRef.current.innerHTML = value || '';
-        }
-    }, [value]);
-
-    // ── Link modal state ────────────────────────────────────────────────────
-    const [linkModalOpen, setLinkModalOpen] = useState(false);
-    const [linkUrl, setLinkUrl] = useState('https://');
-    const [linkText, setLinkText] = useState('');
-    const savedRangeRef = useRef<Range | null>(null);
-
-    const insertLink = () => {
         const el = editorRef.current;
         if (!el) return;
-        el.focus();
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-            const range = sel.getRangeAt(0);
-            savedRangeRef.current = range.cloneRange();
-            // Pre-fill link text from selection
-            setLinkText(sel.toString() || '');
-        } else {
-            savedRangeRef.current = null;
-            setLinkText('');
-        }
-        setLinkUrl('https://');
-        setLinkModalOpen(true);
-    };
-
-    const confirmInsertLink = () => {
-        const el = editorRef.current;
-        if (!el || !linkUrl.trim()) { setLinkModalOpen(false); return; }
-        el.focus();
-        const sel = window.getSelection();
-        sel?.removeAllRanges();
-        if (savedRangeRef.current) sel?.addRange(savedRangeRef.current);
-        const url = linkUrl.trim();
-        if (linkText.trim()) {
-            // Insert an anchor with custom text
-            const a = document.createElement('a');
-            a.href = url;
-            a.target = '_blank';
-            a.rel = 'noopener noreferrer';
-            a.textContent = linkText.trim();
-            const range = savedRangeRef.current;
-            if (range) {
-                range.deleteContents();
-                range.insertNode(a);
-                const afterRange = document.createRange();
-                afterRange.setStartAfter(a);
-                afterRange.collapse(true);
-                sel?.removeAllRanges();
-                sel?.addRange(afterRange);
-            } else {
-                el.appendChild(a);
+        el.style.direction = 'ltr';
+        el.style.textAlign = 'left';
+        el.setAttribute('dir', 'ltr');
+        if (value !== lastVal.current) {
+            lastVal.current = value;
+            // Only update DOM if content actually differs (avoid caret jumps while typing)
+            if (el.innerHTML !== value) {
+                el.innerHTML = value;
             }
-        } else {
-            document.execCommand('createLink', false, url);
-            // Make link open in new tab
-            el.querySelectorAll(`a[href="${url}"]`).forEach(a => {
-                (a as HTMLAnchorElement).target = '_blank';
-                (a as HTMLAnchorElement).rel = 'noopener noreferrer';
-            });
+            // After content loads, recalculate min-height for any saved images
+            requestAnimationFrame(() => updateEditorMinHeight());
         }
-        onChange(el.innerHTML);
-        setLinkModalOpen(false);
-    };
-
-    // ── Font size — wrap selection in a <span style="font-size: Xpx"> ─────────
-    const applyFontSize = (px: string) => {
-        const el = editorRef.current;
-        if (!el) return;
-        el.focus();
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        const range = sel.getRangeAt(0);
-        if (range.collapsed) {
-            // No selection — just update currentSize so next typed chars inherit it.
-            // We insert a zero-width span as a font-size carrier.
-            const span = document.createElement('span');
-            span.style.fontSize = px + 'px';
-            span.innerHTML = '&#8203;'; // zero-width space
-            range.insertNode(span);
-            range.setStartAfter(span);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        } else {
-            // Wrap selected content in a font-size span
-            const span = document.createElement('span');
-            span.style.fontSize = px + 'px';
-            try {
-                range.surroundContents(span);
-            } catch {
-                // surroundContents fails for partial selections across elements;
-                // fall back to extracting then wrapping
-                const extracted = range.extractContents();
-                span.appendChild(extracted);
-                range.insertNode(span);
-            }
-            // Restore selection over the new span
-            const newRange = document.createRange();
-            newRange.selectNodeContents(span);
-            sel.removeAllRanges();
-            sel.addRange(newRange);
-        }
-        onChange(el.innerHTML);
-    };
+    }, [value, updateEditorMinHeight]);
 
     // ── Image upload ─────────────────────────────────────────────────────────
     const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -604,6 +587,8 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
 
                 el.appendChild(img);
                 onChange(el.innerHTML);
+                // Let the browser paint the image, then measure and expand editor
+                requestAnimationFrame(() => updateEditorMinHeight());
             };
             tmp.src = src;
         };
@@ -633,7 +618,10 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                 img.style.outline = '2px dashed #4B6333';
                 attachImgOverlay(
                     img,
-                    () => { onChange(el.innerHTML); },  // onResize / onChange
+                    () => {
+                        onChange(el.innerHTML);
+                        updateEditorMinHeight();
+                    },
                 );
             } else {
                 deselect();
@@ -668,6 +656,120 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
             removeImgOverlay();
         };
     }, [onChange]);
+
+    // ── Link modal state ──────────────────────────────────────────────────────
+    const [linkModalOpen, setLinkModalOpen] = useState(false);
+    const [linkUrl, setLinkUrl] = useState('https://');
+    const [linkText, setLinkText] = useState('');
+    const savedRangeRef = useRef<Range | null>(null);
+
+    const insertLink = () => {
+        const el = editorRef.current;
+        if (!el) return;
+        el.focus();
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+            savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+            setLinkText(sel.toString() || '');
+        } else {
+            savedRangeRef.current = null;
+            setLinkText('');
+        }
+        setLinkUrl('https://');
+        setLinkModalOpen(true);
+    };
+
+    const confirmInsertLink = () => {
+        const el = editorRef.current;
+        if (!el || !linkUrl.trim()) { setLinkModalOpen(false); return; }
+        el.focus();
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        if (savedRangeRef.current) sel?.addRange(savedRangeRef.current);
+        const url = linkUrl.trim();
+        if (linkText.trim()) {
+            const a = document.createElement('a');
+            a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+            a.textContent = linkText.trim();
+            const range = savedRangeRef.current;
+            if (range) {
+                range.deleteContents();
+                range.insertNode(a);
+                const after = document.createRange();
+                after.setStartAfter(a); after.collapse(true);
+                sel?.removeAllRanges(); sel?.addRange(after);
+            } else { el.appendChild(a); }
+        } else {
+            document.execCommand('createLink', false, url);
+            el.querySelectorAll(`a[href="${url}"]`).forEach(a => {
+                (a as HTMLAnchorElement).target = '_blank';
+                (a as HTMLAnchorElement).rel = 'noopener noreferrer';
+            });
+        }
+        onChange(el.innerHTML);
+        setLinkModalOpen(false);
+    };
+
+    // ── Font size ─────────────────────────────────────────────────────────────
+    const applyFontSize = useCallback((px: string) => {
+        const el = editorRef.current;
+        if (!el) return;
+        restoreSelection();
+        const sel = window.getSelection();
+        if (!sel) return;
+
+        // If nothing is selected or selection is outside the editor, put caret at end
+        if (sel.rangeCount === 0 || !el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        const range = sel.getRangeAt(0);
+
+        if (range.collapsed) {
+            // No selection: insert a zero-width marker span; next typed chars inherit the size
+            const span = document.createElement('span');
+            span.style.fontSize = px + 'px';
+            span.appendChild(document.createTextNode('\u200B'));
+            range.insertNode(span);
+            // Place caret after the zero-width char
+            const newRange = document.createRange();
+            newRange.setStartAfter(span);
+            newRange.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+            savedSelRef.current = newRange.cloneRange();
+        } else {
+            // Extract selected content, strip existing font-size from top-level spans,
+            // re-wrap everything in a single new span with the chosen size
+            const frag = range.extractContents();
+            // Flatten nested font-size so they don't fight the outer span
+            const flattenSize = (node: Node) => {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const e2 = node as HTMLElement;
+                    if (e2.style?.fontSize) e2.style.fontSize = '';
+                    e2.childNodes.forEach(flattenSize);
+                }
+            };
+            flattenSize(frag);
+            const span = document.createElement('span');
+            span.style.fontSize = px + 'px';
+            span.appendChild(frag);
+            range.insertNode(span);
+            // Re-select the span contents so the user can see what changed
+            const newRange = document.createRange();
+            newRange.selectNodeContents(span);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+            savedSelRef.current = newRange.cloneRange();
+        }
+
+        setCurrentSize(px);
+        onChange(el.innerHTML);
+    }, [restoreSelection, onChange]);
 
     return (
         <div className="space-y-2">
@@ -777,15 +879,30 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onImageFile} />
             </div>
 
-            {/* Content area — position:relative so images can be freely placed inside */}
+            {/* Content area — position:relative so images can be freely placed inside.
+                min-height is kept in sync with image positions so the editor always
+                expands to show the full image, never clipping it. */}
             <div
                 ref={editorRef}
                 contentEditable
                 suppressContentEditableWarning
-                onInput={handleInput}
+                onInput={() => {
+                    handleInput();
+                    updateEditorMinHeight();
+                }}
                 data-placeholder={placeholder}
-                className="min-h-[140px] px-4 py-3 border border-slate-200 border-t-0 rounded-b-xl bg-white text-sm outline-none focus:ring-2 focus:ring-[#4B6333]/30 transition-all"
-                style={{ fontFamily: 'inherit', lineHeight: 1.6, position: 'relative' }}
+                dir="ltr"
+                className="px-4 py-3 border border-slate-200 border-t-0 rounded-b-xl bg-white text-sm outline-none focus:ring-2 focus:ring-[#4B6333]/30 transition-all"
+                style={{
+                    fontFamily: 'inherit',
+                    lineHeight: 1.6,
+                    position: 'relative',
+                    direction: 'ltr',
+                    textAlign: 'left',
+                    unicodeBidi: 'plaintext',
+                    whiteSpace: 'pre-wrap',
+                    minHeight: '140px',
+                }}
             />
 
             {/* Link Modal */}
@@ -895,6 +1012,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
     const [headerContent, setHeaderContent] = useState('');
     const [footerContent, setFooterContent] = useState('');
+    const [headerError, setHeaderError] = useState(false);
+    const [footerError, setFooterError] = useState(false);
     
     const checklistOptions = [
         "Institutional and course headers verified",
@@ -928,15 +1047,17 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         const s4 = safeparse(`syllabus_step4_${id}`);
         const s5 = safeparse(`syllabus_step5_${id}`);
 
-        // Always read from refs so we get the latest values even if state is stale
-        const curHeader = headerRef.current;
-        const curFooter = footerRef.current;
-        const curFormat = exportFormatRef.current;
+        // Always read from refs so we get the latest values even if state is stale,
+        // but prefer sessionStorage as the definitive source of truth for header/footer
+        // since those keys survive Back navigation and page refresh.
+        const curHeader   = sessionStorage.getItem(`syllabus_header_${id}`) ?? headerRef.current;
+        const curFooter   = sessionStorage.getItem(`syllabus_footer_${id}`) ?? footerRef.current;
+        const curFormat   = exportFormatRef.current;
         const curFileName = fileNameRef.current;
 
         return {
-            syllabus_session_id: id,
-            course_code: s1.course_code || '',
+            session_id:   id,
+            course_code:  s1.course_code  || '',
             course_title: s1.course_title || '',
 
             // Each step's raw data (for DB columns)
@@ -945,12 +1066,19 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             step3: s3,
             step4: s4,
             step5: s5,
-            step6: { exportFormat: curFormat, fileName: curFileName, header: curHeader, footer: curFooter },
+            // step6 column — includes header & footer so they land in the DB
+            step6: {
+                exportFormat: curFormat,
+                fileName:     curFileName,
+                header:       curHeader,
+                footer:       curFooter,
+            },
 
-            header: curHeader || '',
-        footer: curFooter || '',
+            // Root-level convenience keys used by the controller
+            header: curHeader,
+            footer: curFooter,
 
-            // Expanded flat final_data for PDF generation backend
+            // Expanded flat final_data for PDF/DOCX generation
             final_data: {
                 // Step 1
                 course_code:        s1.course_code        || '',
@@ -983,7 +1111,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 groupCriteria: s5.groupCriteria || [],
                 signatories:   s5.signatories   || [],
 
-                // Step 6 export options
+                // Step 6 — header/footer from sessionStorage
                 format:     curFormat,
                 customName: curFileName,
                 header:     curHeader,
@@ -998,37 +1126,62 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             return;
         }
 
+        const cleanHeader = headerRef.current.replace(/<[^>]*>/g, '').trim();
+        const cleanFooter = footerRef.current.replace(/<[^>]*>/g, '').trim();
+
+        setHeaderError(!cleanHeader);
+        setFooterError(!cleanFooter);
+
+        if (!cleanHeader || !cleanFooter) return;
+
         setIsGenerating(true);
 
         try {
             const payload = buildFullPayload();
             if (!payload) { alert("Session expired. Please restart."); return; }
 
-            // SAVE TO DB FIRST
-            await axios.post('/syllabus-generator/save', payload);
-            console.log("Saved to DB");
+            const response = await axios.post(
+                '/syllabus-generator/save',
+                payload,
+                {
+                    responseType: 'blob',
+                }
+            );
 
-            // THEN GENERATE FILE (send full final_data for backend rendering)
-            const response = await axios.post('/syllabus-generator/generate-pdf', payload.final_data, {
-                responseType: 'blob',
+            console.log("Saved to DB and received file");
+
+            // Create downloadable blob
+            const blob = new Blob([response.data], {
+                type:
+                    exportFormatRef.current === 'pdf'
+                        ? 'application/pdf'
+                        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             });
 
-            const extension = exportFormat === 'pdf' ? 'pdf' : 'docx';
-            const url = window.URL.createObjectURL(new Blob([response.data]));
+            // Create temporary download link
+            const downloadUrl = window.URL.createObjectURL(blob);
+
             const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `${fileName}.${extension}`);
+            link.href = downloadUrl;
+
+            link.download =
+                `${fileNameRef.current}.${exportFormatRef.current}`;
+
             document.body.appendChild(link);
             link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
+
+            link.remove();
+            window.URL.revokeObjectURL(downloadUrl);
 
             setShowSuccess(true);
-            setTimeout(() => setShowSuccess(false), 4000);
+
+            setTimeout(() => {
+                window.location.href = '/dashboard';
+            }, 2000);
 
         } catch (error) {
             console.error("Export failed:", error);
-            alert("Something went wrong during export. Please try again.");
+            alert("Something went wrong while saving. Please try again.");
         } finally {
             setIsGenerating(false);
         }
@@ -1192,6 +1345,16 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     color: #94a3b8;
                     pointer-events: none;
                 }
+                /* Links inside editor look like real links */
+                [contenteditable] a {
+                    color: #1a56db !important;
+                    text-decoration: underline !important;
+                    cursor: pointer;
+                }
+                /* Ensure inline color/background styles from execCommand are visible */
+                [contenteditable] span[style] {
+                    display: inline;
+                }
                 /* Images inside the editor — freely positioned, absolute within the editor */
                 [contenteditable] img[data-hf-img] {
                     position: absolute;
@@ -1216,6 +1379,12 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 }
                 .syllabus-custom-header { border-bottom: 1px solid #888; margin-bottom: 8px; }
                 .syllabus-custom-footer { border-top: 1px solid #888; margin-top: 8px; }
+                /* Links in preview */
+                .syllabus-custom-header a,
+                .syllabus-custom-footer a {
+                    color: #1a56db !important;
+                    text-decoration: underline !important;
+                }
             `}} />
             <Navbar />
             <Head title="SyllabiSys: Review & Export" />
@@ -1375,17 +1544,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 </div>
                             </div>
 
-                            <button 
-                                onClick={handleGenerateSyllabus}
-                                disabled={isGenerating || checkedItems.length < checklistOptions.length}
-                                className="w-full mt-6 py-4 md:py-5 bg-white text-[#800000] rounded-xl md:rounded-2xl font-black text-xs md:text-sm uppercase tracking-widest shadow-xl hover:bg-slate-50 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isGenerating ? (
-                                    <span className="animate-pulse">Processing...</span>
-                                ) : (
-                                    <><Download size={18} /> {checkedItems.length < checklistOptions.length ? 'Verify Checklist' : 'Generate'}</>
-                                )}
-                            </button>
                         </div>
 
                     </motion.div>
@@ -1407,18 +1565,50 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     </div>
 
                     <div className="p-5 md:p-8 flex flex-col gap-6 md:gap-8">
-                        <RichDocEditor
-                            label="Header Content"
-                            value={headerContent}
-                            onChange={setHeaderContent}
-                            placeholder="e.g. Polytechnic University of the Philippines, Santa Rosa Campus..."
-                        />
-                        <RichDocEditor
-                            label="Footer Content"
-                            value={footerContent}
-                            onChange={setFooterContent}
-                            placeholder="e.g. Contact details, copyright, page numbers..."
-                        />
+                        <div className="space-y-2">
+                            <div className={headerError ? 'rounded-2xl border-2 border-red-500' : ''}>
+                                <RichDocEditor
+                                    label="Header Content"
+                                    value={headerContent}
+                                    onChange={(val) => {
+                                        setHeaderContent(val);
+
+                                        const cleaned = val.replace(/<[^>]*>/g, '').trim();
+                                        if (cleaned) {
+                                            setHeaderError(false);
+                                        }
+                                    }}
+                                />
+                            </div>
+
+                            {headerError && (
+                                <p className="text-red-500 text-sm font-medium px-1">
+                                    Header content is required before generating the syllabus.
+                                </p>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            <div className={footerError ? 'rounded-2xl border-2 border-red-500' : ''}>
+                                <RichDocEditor
+                                    label="Footer Content"
+                                    value={footerContent}
+                                    onChange={(val) => {
+                                        setFooterContent(val);
+
+                                        const cleaned = val.replace(/<[^>]*>/g, '').trim();
+                                        if (cleaned) {
+                                            setFooterError(false);
+                                        }
+                                    }}
+                                />
+                            </div>
+
+                            {footerError && (
+                                <p className="text-red-500 text-sm font-medium px-1">
+                                    Footer content is required before generating the syllabus.
+                                </p>
+                            )}
+                        </div>
                     </div>
                 </motion.div>
             </main>
@@ -1484,21 +1674,41 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     // ─── Shared sub-components ───────────────────────────────────────
 
                     // ─── Custom Header/Footer from editor — these are the ONLY header/footer on each page ──
-                    // The user designs exactly what appears: their logo, text, signature, etc.
+                    // AutoHeightHF: after mount, measures any absolutely-positioned images and
+                    // expands the container's minHeight so nothing gets clipped.
+                    const AutoHeightHF: React.FC<{ html: string; className: string }> = ({ html, className }) => {
+                        const ref = useRef<HTMLDivElement>(null);
+                        useEffect(() => {
+                            const el = ref.current;
+                            if (!el) return;
+                            const measure = () => {
+                                let needed = el.scrollHeight || 0;
+                                el.querySelectorAll<HTMLImageElement>('img[data-hf-img]').forEach(img => {
+                                    const bottom = img.offsetTop + img.offsetHeight + 8;
+                                    if (bottom > needed) needed = bottom;
+                                });
+                                if (needed > 0) el.style.minHeight = needed + 'px';
+                            };
+                            measure();
+                            const imgs = Array.from(el.querySelectorAll<HTMLImageElement>('img[data-hf-img]'));
+                            imgs.forEach(img => { if (!img.complete) img.addEventListener('load', measure, { once: true }); });
+                        }, [html]);
+                        return (
+                            <div
+                                ref={ref}
+                                className={className}
+                                style={{ position: 'relative' }}
+                                dangerouslySetInnerHTML={{ __html: html || '' }}
+                            />
+                        );
+                    };
+
                     const CustomPageHeader = () => (
-                        <div
-                            className="syllabus-custom-header"
-                            style={{ position: 'relative', minHeight: headerContent ? undefined : '0px' }}
-                            dangerouslySetInnerHTML={{ __html: headerContent || '' }}
-                        />
+                        <AutoHeightHF html={headerContent} className="syllabus-custom-header" />
                     );
 
                     const CustomPageFooter = () => (
-                        <div
-                            className="syllabus-custom-footer"
-                            style={{ position: 'relative', minHeight: footerContent ? undefined : '0px' }}
-                            dangerouslySetInnerHTML={{ __html: footerContent || '' }}
-                        />
+                        <AutoHeightHF html={footerContent} className="syllabus-custom-footer" />
                     );
 
                     const pageBase = "preview-container shadow-2xl font-serif text-black relative bg-white";
@@ -1630,6 +1840,12 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 .syllabus-custom-header span[style],
                                 .syllabus-custom-footer span[style] {
                                     display: inline;
+                                }
+                                /* Links in preview header/footer */
+                                .syllabus-custom-header a,
+                                .syllabus-custom-footer a {
+                                    color: #1a56db !important;
+                                    text-decoration: underline !important;
                                 }
                             `}} />
 
@@ -2194,7 +2410,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                         <button
                             onClick={handleGenerateSyllabus}
                             disabled={checkedItems.length < checklistOptions.length}
-                            className="flex-[2] sm:flex-none flex items-center justify-center gap-1.5 px-4 sm:px-8 py-3 rounded-xl font-bold text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 disabled:opacity-50"
+                            className="flex-[2] sm:flex-none cursor-pointer flex items-center justify-center gap-1.5 px-4 sm:px-8 py-3 rounded-xl font-bold text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 disabled:opacity-50"
                         >
                             Finish <span className="hidden sm:inline">& Complete</span> <ChevronRight size={16} />
                         </button>
