@@ -43,7 +43,22 @@ createInertiaApp({
     },
 
     setup({ el, App, props }) {
+        const existingRoot = (el as any)._reactRoot;
+
+        if (existingRoot) {
+            existingRoot.render(
+                <>
+                    <App {...props} />
+                    <GlobalSessionHandler flash={props?.initialPage?.props?.flash} />
+                </>
+            );
+
+            return;
+        }
+
         const root = createRoot(el);
+
+        (el as any)._reactRoot = root;
 
         root.render(
             <>

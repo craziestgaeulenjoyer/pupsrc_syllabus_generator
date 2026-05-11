@@ -71,6 +71,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/syllabus-generator/save', [SyllabusController::class, 'store'])
         ->name('syllabus.save');
 
+    // Alias kept for backward compatibility (older frontend references)
+    Route::post('/syllabus/save', [SyllabusController::class, 'store'])
+        ->name('syllabus.save.alias');
+
     /* ---------------- PDF VIEWER ROUTES ---------------- */
     Route::get('/viewer/{id}', function ($id) {
         $file = [

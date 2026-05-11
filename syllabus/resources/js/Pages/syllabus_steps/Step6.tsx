@@ -283,7 +283,7 @@ function attachImgOverlay(
 
     const overlay = document.createElement('div') as any;
     overlay.id = IMG_HANDLE_ID;
-    overlay.style.cssText = `position:fixed;z-index:99999;pointer-events:none;border:2px dashed #4B6333;border-radius:3px;box-sizing:border-box;`;
+    overlay.style.cssText = `position:fixed;z-index:99999;pointer-events:none;border:none;border-radius:3px;box-sizing:border-box;`;
 
     // ── Position overlay over the img ────────────────────────────────────────
     function positionOverlay() {
@@ -1047,16 +1047,32 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         const s4 = safeparse(`syllabus_step4_${id}`);
         const s5 = safeparse(`syllabus_step5_${id}`);
 
-        // Always read from refs so we get the latest values even if state is stale,
-        // but prefer sessionStorage as the definitive source of truth for header/footer
-        // since those keys survive Back navigation and page refresh.
-        const curHeader   = sessionStorage.getItem(`syllabus_header_${id}`) ?? headerRef.current;
-        const curFooter   = sessionStorage.getItem(`syllabus_footer_${id}`) ?? footerRef.current;
+        // Always read header/footer from their dedicated sessionStorage keys
+        // (these are written by the onChange handlers in real time)
+        const curHeader   = sessionStorage.getItem(`syllabus_header_${id}`) ?? headerRef.current ?? '';
+        const curFooter   = sessionStorage.getItem(`syllabus_footer_${id}`) ?? footerRef.current ?? '';
         const curFormat   = exportFormatRef.current;
         const curFileName = fileNameRef.current;
 
+        // Also persist step6 so DB gets the latest
+        if (hasLoadedRef.current) {
+            sessionStorage.setItem(`syllabus_step6_${id}`, JSON.stringify({
+                exportFormat: curFormat,
+                fileName:     curFileName,
+                header:       curHeader,
+                footer:       curFooter,
+            }));
+        }
+
+        const step6Data = {
+            exportFormat: curFormat,
+            fileName:     curFileName,
+            header:       curHeader,
+            footer:       curFooter,
+        };
+
         return {
-            session_id:   id,
+            syllabus_session_id: id,          // matches controller validation key
             course_code:  s1.course_code  || '',
             course_title: s1.course_title || '',
 
@@ -1066,17 +1082,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             step3: s3,
             step4: s4,
             step5: s5,
-            // step6 column — includes header & footer so they land in the DB
-            step6: {
-                exportFormat: curFormat,
-                fileName:     curFileName,
-                header:       curHeader,
-                footer:       curFooter,
-            },
-
-            // Root-level convenience keys used by the controller
-            header: curHeader,
-            footer: curFooter,
+            // step6 column — header & footer so they persist in DB
+            step6: step6Data,
 
             // Expanded flat final_data for PDF/DOCX generation
             final_data: {
@@ -1111,7 +1118,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 groupCriteria: s5.groupCriteria || [],
                 signatories:   s5.signatories   || [],
 
-                // Step 6 — header/footer from sessionStorage
+                // Step 6 — header/footer + export options
                 format:     curFormat,
                 customName: curFileName,
                 header:     curHeader,
@@ -1126,62 +1133,44 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             return;
         }
 
-        const cleanHeader = headerRef.current.replace(/<[^>]*>/g, '').trim();
-        const cleanFooter = footerRef.current.replace(/<[^>]*>/g, '').trim();
-
-        setHeaderError(!cleanHeader);
-        setFooterError(!cleanFooter);
-
-        if (!cleanHeader || !cleanFooter) return;
-
         setIsGenerating(true);
 
         try {
             const payload = buildFullPayload();
             if (!payload) { alert("Session expired. Please restart."); return; }
 
+            // Single request: save to DB AND stream the file back.
+            // The controller's store() method checks download=true and returns
+            // a file response instead of JSON when that flag is set.
             const response = await axios.post(
                 '/syllabus-generator/save',
-                payload,
-                {
-                    responseType: 'blob',
-                }
+                { ...payload, download: true },
+                { responseType: 'blob' }
             );
 
-            console.log("Saved to DB and received file");
+            const mimeType = exportFormatRef.current === 'docx'
+                ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                : 'application/pdf';
 
-            // Create downloadable blob
-            const blob = new Blob([response.data], {
-                type:
-                    exportFormatRef.current === 'pdf'
-                        ? 'application/pdf'
-                        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            });
-
-            // Create temporary download link
+            const blob = new Blob([response.data], { type: mimeType });
             const downloadUrl = window.URL.createObjectURL(blob);
-
             const link = document.createElement('a');
             link.href = downloadUrl;
-
-            link.download =
-                `${fileNameRef.current}.${exportFormatRef.current}`;
-
+            link.download = `${fileNameRef.current}.${exportFormatRef.current === 'docx' ? 'docx' : 'pdf'}`;
             document.body.appendChild(link);
             link.click();
-
             link.remove();
             window.URL.revokeObjectURL(downloadUrl);
 
             setShowSuccess(true);
-
             setTimeout(() => {
+                setShowSuccess(false);
                 window.location.href = '/dashboard';
-            }, 2000);
+            }, 3000);
 
         } catch (error) {
             console.error("Export failed:", error);
-            alert("Something went wrong while saving. Please try again.");
+            alert("Something went wrong while generating the file. Please try again.");
         } finally {
             setIsGenerating(false);
         }
@@ -1191,7 +1180,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         const payload = buildFullPayload();
         if (!payload) return;
         try {
-            await axios.post('/syllabus-generator/save', payload);
+            await axios.post('/syllabus-generator/save', { ...payload, download: false });
             console.log("Auto-saved to DB");
         } catch (error) {
             console.error("DB Save failed:", error);
@@ -1226,12 +1215,24 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             const step4 = JSON.parse(sessionStorage.getItem(`syllabus_step4_${sessionId}`) || '{}');
             const step5 = JSON.parse(sessionStorage.getItem(`syllabus_step5_${sessionId}`) || '{}');
 
+            // Also load step6 (header/footer/export options) — source of truth is
+            // the dedicated header/footer keys; step6 key stores the rest.
+            const savedHeader = sessionStorage.getItem(`syllabus_header_${sessionId}`) ?? '';
+            const savedFooter = sessionStorage.getItem(`syllabus_footer_${sessionId}`) ?? '';
+            let step6: Record<string, any> = {};
+            try {
+                const raw = sessionStorage.getItem(`syllabus_step6_${sessionId}`);
+                step6 = raw ? JSON.parse(raw) : {};
+            } catch {}
+            step6 = { ...step6, header: savedHeader, footer: savedFooter };
+
             const merged = {
                 step1,
                 step2,
                 step3,
                 step4,
                 step5,
+                step6,
                 syllabus_session_id: sessionId
             };
 
@@ -1251,45 +1252,21 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
         hasLoadedRef.current = false;
 
-        let loadedHeader = '';
-        let loadedFooter = '';
-
-        const savedHeader = sessionStorage.getItem(`syllabus_header_${sessionId}`);
-        const savedFooter = sessionStorage.getItem(`syllabus_footer_${sessionId}`);
-
-        if (savedHeader !== null) loadedHeader = savedHeader;
-        if (savedFooter !== null) loadedFooter = savedFooter;
+        // Load header/footer from their dedicated keys first
+        const savedHeader = sessionStorage.getItem(`syllabus_header_${sessionId}`) ?? '';
+        const savedFooter = sessionStorage.getItem(`syllabus_footer_${sessionId}`) ?? '';
 
         try {
             const saved = JSON.parse(sessionStorage.getItem(`syllabus_step6_${sessionId}`) || '{}');
-    
             if (saved.exportFormat) setExportFormat(saved.exportFormat);
-            if (saved.fileName) setFileName(saved.fileName);
-
-            // Always sync header/footer from dedicated storage
-            const savedHeader = sessionStorage.getItem(`syllabus_header_${sessionId}`);
-            const savedFooter = sessionStorage.getItem(`syllabus_footer_${sessionId}`);
-
-            if (saved) {
-            const parsed = JSON.parse(saved);
-
-            // 🔥 FORCE OVERRIDE (this is the fix)
-            parsed.header = savedHeader || parsed.header || '';
-            parsed.footer = savedFooter || parsed.footer || '';
-
-            // apply to refs/state
-            headerRef.current = parsed.header;
-            footerRef.current = parsed.footer;
-
-            setHeaderContent(parsed.header);
-            setFooterContent(parsed.footer);
-
-            // (keep your existing assignments here)
-            }
+            if (saved.fileName)     setFileName(saved.fileName);
         } catch {}
 
-        setHeaderContent(loadedHeader);
-        setFooterContent(loadedFooter);
+        // Always apply the header/footer (dedicated keys are source of truth)
+        headerRef.current = savedHeader;
+        footerRef.current = savedFooter;
+        setHeaderContent(savedHeader);
+        setFooterContent(savedFooter);
 
         setTimeout(() => {
             hasLoadedRef.current = true;
@@ -1315,13 +1292,15 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     const persistStep6 = useCallback(() => {
         const id = sessionIdRef.current;
         if (!id || !hasLoadedRef.current) return;
-        if (headerRef.current === '' && footerRef.current === '') return;
+
+        const header = sessionStorage.getItem(`syllabus_header_${id}`) ?? headerRef.current ?? '';
+        const footer = sessionStorage.getItem(`syllabus_footer_${id}`) ?? footerRef.current ?? '';
+
         sessionStorage.setItem(`syllabus_step6_${id}`, JSON.stringify({
-            finalSyllabusData: finalDataRef.current,
-            exportFormat:      exportFormatRef.current,
-            fileName:          fileNameRef.current,
-            header: sessionStorage.getItem(`syllabus_header_${id}`) || headerRef.current || '',
-            footer: sessionStorage.getItem(`syllabus_footer_${id}`) || footerRef.current || '',
+            exportFormat: exportFormatRef.current,
+            fileName:     fileNameRef.current,
+            header,
+            footer,
         }));
     }, []);
 
@@ -1329,12 +1308,19 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     useEffect(() => {
         if (!sessionId) return;
         sessionStorage.setItem(`syllabus_header_${sessionId}`, headerContent);
+        persistStep6();
     }, [headerContent, sessionId]);
 
     useEffect(() => {
         if (!sessionId) return;
         sessionStorage.setItem(`syllabus_footer_${sessionId}`, footerContent);
+        persistStep6();
     }, [footerContent, sessionId]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+        persistStep6();
+    }, [exportFormat, fileName, sessionId]);
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans selection:bg-[#800000] selection:text-white">
@@ -1360,6 +1346,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     position: absolute;
                     cursor: default;
                     border-radius: 3px;
+                    border: none !important;
+                    outline: none !important;
+                    box-shadow: none !important;
                     -webkit-user-drag: none;
                     user-drag: none;
                     z-index: 5;
@@ -1369,6 +1358,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 .syllabus-custom-footer img[data-hf-img] {
                     position: absolute;
                     border-radius: 3px;
+                    border: none !important;
+                    outline: none !important;
+                    box-shadow: none !important;
                 }
                 /* Custom header/footer preview strip */
                 .syllabus-custom-header,
@@ -1475,12 +1467,13 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                             ? 'bg-green-50 border-green-200' 
                                             : 'bg-slate-50 border-slate-100 hover:border-slate-300'}`}
                                 >
-                                    <div className={`rounded-full p-1 shrink-0 ${checkedItems.includes(i) ? 'bg-[#4B6333]' : 'bg-white border border-slate-200'}`}>
-                                        <CheckCircle 
-                                            size={16} 
-                                            className={checkedItems.includes(i) ? 'text-white' : 'text-slate-200'} 
-                                            fill={checkedItems.includes(i) ? "currentColor" : "none"} 
-                                        />
+                                    <div className={`w-6 h-6 rounded-full shrink-0 flex items-center justify-center transition-all
+                                        ${checkedItems.includes(i) 
+                                            ? 'bg-green-500 border-2 border-green-500' 
+                                            : 'bg-white border-2 border-slate-300'}`}>
+                                        {checkedItems.includes(i) && (
+                                            <Check size={13} strokeWidth={3} className="text-white" />
+                                        )}
                                     </div>
                                     <span className={`text-xs md:text-sm font-bold leading-tight ${checkedItems.includes(i) ? 'text-slate-900' : 'text-slate-500'}`}>
                                         {text}
@@ -1566,48 +1559,22 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
                     <div className="p-5 md:p-8 flex flex-col gap-6 md:gap-8">
                         <div className="space-y-2">
-                            <div className={headerError ? 'rounded-2xl border-2 border-red-500' : ''}>
-                                <RichDocEditor
-                                    label="Header Content"
-                                    value={headerContent}
-                                    onChange={(val) => {
-                                        setHeaderContent(val);
-
-                                        const cleaned = val.replace(/<[^>]*>/g, '').trim();
-                                        if (cleaned) {
-                                            setHeaderError(false);
-                                        }
-                                    }}
-                                />
-                            </div>
-
-                            {headerError && (
-                                <p className="text-red-500 text-sm font-medium px-1">
-                                    Header content is required before generating the syllabus.
-                                </p>
-                            )}
+                            <RichDocEditor
+                                label="Header Content"
+                                value={headerContent}
+                                onChange={(val) => {
+                                    setHeaderContent(val);
+                                }}
+                            />
                         </div>
                         <div className="space-y-2">
-                            <div className={footerError ? 'rounded-2xl border-2 border-red-500' : ''}>
-                                <RichDocEditor
-                                    label="Footer Content"
-                                    value={footerContent}
-                                    onChange={(val) => {
-                                        setFooterContent(val);
-
-                                        const cleaned = val.replace(/<[^>]*>/g, '').trim();
-                                        if (cleaned) {
-                                            setFooterError(false);
-                                        }
-                                    }}
-                                />
-                            </div>
-
-                            {footerError && (
-                                <p className="text-red-500 text-sm font-medium px-1">
-                                    Footer content is required before generating the syllabus.
-                                </p>
-                            )}
+                            <RichDocEditor
+                                label="Footer Content"
+                                value={footerContent}
+                                onChange={(val) => {
+                                    setFooterContent(val);
+                                }}
+                            />
                         </div>
                     </div>
                 </motion.div>
@@ -1835,6 +1802,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     position: absolute;
                                     border-radius: 3px;
                                     max-width: none;
+                                    border: none !important;
+                                    outline: none !important;
+                                    box-shadow: none !important;
                                 }
                                 /* Pass-through font sizes written by applyFontSize (span style) */
                                 .syllabus-custom-header span[style],
@@ -1871,7 +1841,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
                                     {/* ══════════════════════════════════════════════
                                         PAGE 1 — STEP 1: Course Overview & Description
-                                        (mirrors Step1.tsx preview exactly)
                                     ══════════════════════════════════════════════ */}
                                     <PageDivider isFirst pageNum={nextPage()} step={1} title="Course Overview & Description" />
                                     <div className={pageBase}>
@@ -2409,10 +2378,22 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
                         <button
                             onClick={handleGenerateSyllabus}
-                            disabled={checkedItems.length < checklistOptions.length}
-                            className="flex-[2] sm:flex-none cursor-pointer flex items-center justify-center gap-1.5 px-4 sm:px-8 py-3 rounded-xl font-bold text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 disabled:opacity-50"
+                            disabled={checkedItems.length < checklistOptions.length || isGenerating}
+                            className="flex-[2] sm:flex-none cursor-pointer flex items-center justify-center gap-1.5 px-4 sm:px-8 py-3 rounded-xl font-bold text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Finish <span className="hidden sm:inline">& Complete</span> <ChevronRight size={16} />
+                            {isGenerating ? (
+                                <>
+                                    <svg className="animate-spin h-4 w-4 text-white shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                                    </svg>
+                                    <span className="hidden sm:inline">Generating...</span>
+                                </>
+                            ) : (
+                                <>
+                                    Finish <span className="hidden sm:inline">& Complete</span> <ChevronRight size={16} />
+                                </>
+                            )}
                         </button>
                     </div>
                 </div>
