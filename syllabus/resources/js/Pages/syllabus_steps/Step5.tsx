@@ -882,23 +882,6 @@ const Step5 = () => {
                                                 className="w-[297mm] h-[210mm] bg-white p-[10mm] text-black font-serif shadow-xl text-[8pt] leading-tight flex flex-col justify-between"
                                             >
                                                 <div>
-                                                    {/* LETTERHEAD */}
-                                                    <table className="w-full mb-2">
-                                                        <tbody>
-                                                            <tr>
-                                                                <td className="w-16 align-top">
-                                                                    <img src="/images/pup_logo.png" className="w-14"/>
-                                                                </td>
-                                                                <td>
-                                                                    <p>Republic of the Philippines</p>
-                                                                    <p className="font-bold">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                                    <p className="font-bold uppercase">SANTA ROSA CAMPUS</p>
-                                                                    <p className="italic">City of Santa Rosa, Laguna</p>
-                                                                </td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-
                                                     <hr className="border-black border"/>
 
                                                     {/* RUBRICS */}
@@ -1016,23 +999,6 @@ const Step5 = () => {
                                                             </table>
                                                         </>
                                                     )}
-
-                                                </div>
-
-                                                {/* Bottom Labels  */}
-                                                <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
-                                                    <div>
-                                                        <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
-                                                        <p>Direct Line: 0961-8023780</p>
-                                                        <p>Website: https://pupsrc101.school.blog/ | Email: starosa@pup.edu.ph</p>
-                                                    </div>
-                                                    <div className="text-right flex flex-col items-end gap-1">
-                                                    <div className="flex gap-2">
-                                                        <img src="/images/iso_logo.png" alt="ISO" className="h-8 opacity-70" />
-                                                        <img src="/images/ajb_logo.png" alt="AJB" className="h-8 opacity-70" />
-                                                    </div>
-                                                        <p className="font-bold text-black not-italic uppercase">THE COUNTRY'S 1st POLYTECHNIC U</p>
-                                                    </div>
                                                 </div>
                                             </div>
                                         ))}

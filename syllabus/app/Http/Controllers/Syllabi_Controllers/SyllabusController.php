@@ -100,6 +100,157 @@ class SyllabusController extends Controller
         return $pdf->download("{$baseName}.pdf");
     }
 
+    /**
+     * Strip attributes and CSS that cause PhpWord's Html parser to crash
+     * (position:absolute, data-* attrs, outline, box-shadow, etc.)
+     */
+    private function sanitizeHtmlForDocx(string $html): string
+    {
+        if (empty($html)) return '';
+
+        // Remove data-* attributes entirely (e.g. data-hf-img)
+        $html = preg_replace('/\s+data-[a-z0-9_-]+="[^"]*"/i', '', $html);
+        $html = preg_replace("/\s+data-[a-z0-9_-]+='[^']*'/i", '', $html);
+
+        // In style attributes, strip properties that confuse PhpWord
+        $dangerousProps = [
+            'position', 'top', 'left', 'right', 'bottom', 'z-index',
+            'outline', 'box-shadow', '-webkit-user-drag', 'user-drag',
+            'cursor', 'pointer-events', 'border-radius',
+        ];
+        $html = preg_replace_callback('/style="([^"]*)"/i', function ($m) use ($dangerousProps) {
+            $style = $m[1];
+            foreach ($dangerousProps as $prop) {
+                $style = preg_replace('/\b' . preg_quote($prop, '/') . '\s*:[^;]+;?/i', '', $style);
+            }
+            $style = trim(preg_replace('/\s+/', ' ', $style), '; ');
+            return $style !== '' ? 'style="' . $style . '"' : '';
+        }, $html);
+
+        // Convert absolutely-positioned images to inline block so they appear in flow
+        // PhpWord can render basic <img> with width/height attributes
+        $html = preg_replace_callback('/<img\b([^>]*)>/i', function ($m) {
+            $attrs = $m[1];
+            // Extract width/height from style if present
+            $w = $h = null;
+            if (preg_match('/width\s*:\s*(\d+)px/i', $attrs, $wm)) $w = (int)$wm[1];
+            if (preg_match('/height\s*:\s*(\d+)px/i', $attrs, $hm)) $h = (int)$hm[1];
+            // Cap to reasonable header size
+            if ($w && $w > 150) { $h = $h ? (int)($h * 150 / $w) : null; $w = 150; }
+            if ($h && $h > 80)  { $w = $w ? (int)($w * 80  / $h) : null; $h = 80; }
+            $dim = ($w ? " width=\"{$w}\"" : '') . ($h ? " height=\"{$h}\"" : '');
+            // Keep src, strip everything else to avoid parse errors
+            $src = '';
+            if (preg_match('/src="([^"]*)"/i', $attrs, $sm)) $src = 'src="' . $sm[1] . '"';
+            elseif (preg_match("/src='([^']*)'/i", $attrs, $sm)) $src = 'src="' . $sm[1] . '"';
+            return "<img {$src}{$dim} style=\"display:inline-block;vertical-align:middle;\">";
+        }, $html);
+
+        return $html;
+    }
+
+    private function prepareHtmlForPhpWord(string $html): string
+    {
+        libxml_use_internal_errors(true);
+
+        $dom = new \DOMDocument();
+
+        $html = mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8');
+
+        $dom->loadHTML(
+            '<?xml encoding="utf-8" ?>' . $html,
+            LIBXML_HTML_NOIMPLIED |
+            LIBXML_HTML_NODEFDTD |
+            LIBXML_NOERROR |
+            LIBXML_NOWARNING
+        );
+
+        // Remove unsupported tags
+        $removeTags = [
+            'style',
+            'script',
+            'svg',
+            'meta',
+            'link',
+            'colgroup',
+            'thead',
+            'tbody',
+        ];
+
+        foreach ($removeTags as $tag) {
+            while (($nodes = $dom->getElementsByTagName($tag))->length > 0) {
+                $node = $nodes->item(0);
+
+                if ($node && $node->parentNode) {
+                    $node->parentNode->removeChild($node);
+                }
+            }
+        }
+
+        // Remove comments
+        $xpath = new \DOMXPath($dom);
+
+        foreach ($xpath->query('//comment()') as $comment) {
+            $comment->parentNode?->removeChild($comment);
+        }
+
+        // Clean styles
+        foreach ($dom->getElementsByTagName('*') as $el) {
+
+            if ($el->hasAttribute('style')) {
+
+                $style = $el->getAttribute('style');
+
+                // Remove unsupported CSS
+                $style = preg_replace(
+                    '/(display\s*:\s*(flex|grid|inline-flex|inline-grid)|position\s*:\s*absolute|justify-content\s*:[^;]+|align-items\s*:[^;]+|flex-direction\s*:[^;]+|gap\s*:[^;]+|box-shadow\s*:[^;]+|z-index\s*:[^;]+)/i',
+                    '',
+                    $style
+                );
+
+                $el->setAttribute('style', trim($style));
+            }
+
+            // Remove data-* attributes
+            if ($el->hasAttributes()) {
+
+                $remove = [];
+
+                foreach ($el->attributes as $attr) {
+                    if (str_starts_with($attr->nodeName, 'data-')) {
+                        $remove[] = $attr->nodeName;
+                    }
+                }
+
+                foreach ($remove as $attrName) {
+                    $el->removeAttribute($attrName);
+                }
+            }
+        }
+
+        $cleanHtml = $dom->saveHTML();
+
+        libxml_clear_errors();
+
+        return '<div>' . $cleanHtml . '</div>';
+    }
+
+
+/**
+ * DROP-IN REPLACEMENT for the streamDocx() method in SyllabusController.php
+ *
+ * Replace the entire existing streamDocx() method (lines ~238-310) with this.
+ * Also add the private helper methods at the bottom of the class
+ * (docxBorder, docxCell, docxHeaderCell, docxTextPara, docxBoldPara).
+ *
+ * This bypasses Html::addHtml() entirely and builds every section natively
+ * using the PhpWord object API, which is reliable for all content types.
+ */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPLACE the streamDocx() method with this:
+// ═══════════════════════════════════════════════════════════════════════════
+
     private function streamDocx(
         string $baseName,
         string $courseCode,
@@ -111,85 +262,966 @@ class SyllabusController extends Controller
         array $step5,
         string $header,
         string $footer
-    )
-    {
-        $html = $this->buildHtml(
-            $courseCode,
-            $courseTitle,
-            $step1,
-            $step2,
-            $step3,
-            $step4,
-            $step5,
-            $header,
-            $footer
+    ) {
+        // ── Shorthands ───────────────────────────────────────────────────────
+        $t = fn(string $v): string => strip_tags($v);   // strip HTML tags for plain text
+        $s = fn($v): string => (string)($v ?? '');
+
+        // ── Data extraction (mirrors buildHtml) ──────────────────────────────
+        $credit      = $s($step1['course_credit']      ?? '');
+        $description = $t($s($step1['course_description'] ?? ''));
+        $preReq      = $s($step1['pre_requisites']     ?? 'None');
+        $coReq       = $s($step1['co_requisites']      ?? 'None');
+        $vision      = $t($s($step1['vision']          ?? ''));
+        $mission     = $t($s($step1['mission']         ?? ''));
+        $quality     = $t($s($step1['quality_statement_policy'] ?? ''));
+        $ilos        = $step1['ilos']                  ?? [];
+
+        $plos        = $step2['plos']                  ?? [];
+        $clos        = $step2['clos']                  ?? [];
+        $iloMapping  = $step2['iloMapping']            ?? [];
+        $ploMapping  = $step2['ploMapping']            ?? [];
+        $iloCount    = 9;
+
+        $obtlData    = $step3['obtlData']              ?? [];
+        $references  = array_filter($step3['references']      ?? [], fn($r) => !empty(trim($r['text'] ?? '')));
+        $otherRefs   = array_filter($step3['otherReferences'] ?? [], fn($r) => !empty(trim($r['text'] ?? '')));
+
+        $gradingComponents = $step4['gradingComponents'] ?? [];
+        $requirements      = $step4['requirements']      ?? [];
+        $f2fLink           = $s($step4['f2fLink']        ?? '');
+        $f2fPolicies       = $step4['f2fPolicies']       ?? [];
+        $syncPolicies      = $step4['syncPolicies']      ?? [];
+        $asyncPolicies     = $step4['asyncPolicies']     ?? [];
+        $generalPolicies   = $step4['generalPolicies']   ?? [];
+
+        $classInfo     = $step5['classInfo']     ?? [];
+        $facultyInfo   = $step5['facultyInfo']   ?? [];
+        $rubrics       = $step5['rubrics']       ?? [];
+        $groupCriteria = $step5['groupCriteria'] ?? [];
+        $signatories   = $step5['signatories']   ?? [];
+
+        // ── PhpWord setup ────────────────────────────────────────────────────
+        $phpWord = new \PhpOffice\PhpWord\PhpWord();
+
+        // Default font
+        $phpWord->setDefaultFontName('Arial Narrow');
+        $phpWord->setDefaultFontSize(9);
+
+        // Section = one A4 landscape page group
+        $sectionStyle = [
+            'pageSizeW'    => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(29.7),
+            'pageSizeH'    => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(21.0),
+            'orientation'  => 'landscape',
+            'marginTop'    => Converter::cmToTwip(1.0),
+            'marginBottom' => Converter::cmToTwip(1.0),
+            'marginLeft'   => Converter::cmToTwip(1.2),
+            'marginRight'  => Converter::cmToTwip(1.2),
+        ];
+
+        // ── Shared style constants ───────────────────────────────────────────
+        // Page content width in twips: (29.7 - 1.8 - 1.8) cm = 26.1 cm
+        $pageW   = \PhpOffice\PhpWord\Shared\Converter::cmToTwip(26.1);
+        $border  = $this->docxBorder();
+        $fntSm   = ['name' => 'Arial', 'size' => 8];
+        $fntXSm  = ['name' => 'Arial', 'size' => 7];
+        $fntBold = ['name' => 'Arial Narrow', 'size' => 9, 'bold' => true];
+        $fntNorm = ['name' => 'Arial', 'size' => 9];
+        $cellPad = ['top' => 40, 'bottom' => 40, 'left' => 60, 'right' => 60];
+        $center  = ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER];
+        $bgYellow   = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'FFF9C4'];
+        $bgBlue     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'E8F4FF'];
+        $bgGray     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'E2E8F0'];
+        $bgPink     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'FFE8E8'];
+        $bgBanner   = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D6E4F0']; // section banner color
+        $bgLightGray= ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9E2F3'];
+
+        // ── Helper: add a full-width section banner row (matches PDF .section-banner) ──
+        // Adds a 1-row table with one spanned bold centered dark-blue cell.
+        $addSectionBanner = function(\PhpOffice\PhpWord\Element\Section $sec, string $label) use ($pageW, $border, $cellPad, $center) {
+            $tbl = $sec->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+            $tbl->addRow();
+            $cell = $tbl->addCell($pageW, array_merge($border, ['cellMargin' => $cellPad,
+                'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'],
+            ]));
+            $cell->addText($label, ['name' => 'Arial', 'size' => 9, 'bold' => true, 'color' => 'FFFFFF'], $center);
+        };
+
+        // ── Helper: add a custom header/footer strip — mirrors layoutHfHtml() in PDF ──
+        // Parses the rich-editor HTML to extract left/right positioned images and
+        // center text, then builds a 3-column DOCX table matching the PDF layout.
+        $addHfTable = function (
+            \PhpOffice\PhpWord\Element\Section $sec,
+            string $html,
+            bool $isFooter
+        ) use ($pageW, $fntXSm) {
+
+            if (trim($html) === '') return;
+
+            // Parse HTML to extract images and remaining text
+            libxml_use_internal_errors(true);
+            $dom = new \DOMDocument('1.0', 'UTF-8');
+            $dom->loadHTML(
+                '<?xml encoding="UTF-8"><div id="__hf__">' . $html . '</div>',
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
+            );
+            libxml_clear_errors();
+
+            $root      = $dom->getElementById('__hf__');
+            $leftImgs  = [];
+            $rightImgs = [];
+            $EDITOR_W  = 900;
+            $toRemove  = [];
+
+            foreach ($dom->getElementsByTagName('img') as $img) {
+                $style    = $img->getAttribute('style');
+                $leftPx   = 0; $widthPx = 80; $heightPx = 60;
+                if (preg_match('/left\s*:\s*([\d.]+)px/i',   $style, $m)) $leftPx   = (float)$m[1];
+                if (preg_match('/width\s*:\s*([\d.]+)px/i',  $style, $m)) $widthPx  = (int)$m[1];
+                if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx = (int)$m[1];
+                $src = $img->getAttribute('src');
+                if (empty($src)) { $toRemove[] = $img; continue; }
+                $scale  = min(1.0, 90 / max($heightPx, 1));
+                $wFinal = max(20, (int)($widthPx  * $scale));
+                $hFinal = max(10, (int)($heightPx * $scale));
+                $entry  = ['src' => $src, 'w' => $wFinal, 'h' => $hFinal, 'left' => $leftPx];
+                if ($leftPx < $EDITOR_W * 0.5) { $leftImgs[]  = $entry; }
+                else                            { $rightImgs[] = $entry; }
+                $toRemove[] = $img;
+            }
+            foreach ($toRemove as $node) { $node->parentNode?->removeChild($node); }
+
+            // Remaining text after image removal
+            $inner = '';
+            if ($root) { foreach ($root->childNodes as $child) { $inner .= $dom->saveHTML($child); } }
+            $plainText = trim(strip_tags($inner));
+
+            // Shared cell style (no noWrap so text can wrap)
+            $bdrTop    = $isFooter ? 6 : 0;
+            $bdrBottom = $isFooter ? 0 : 6;
+            $shading   = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F8F8F8'];
+            $cellBase  = [
+                'borderTopSize'    => $bdrTop,    'borderTopColor'    => 'CCCCCC',
+                'borderBottomSize' => $bdrBottom, 'borderBottomColor' => 'CCCCCC',
+                'borderLeftSize'   => 0,          'borderLeftColor'   => 'FFFFFF',
+                'borderRightSize'  => 0,          'borderRightColor'  => 'FFFFFF',
+                'shading'          => $shading,
+                'cellMargin'       => ['top' => 40, 'bottom' => 40, 'left' => 80, 'right' => 80],
+                'valign'           => 'center',
+                'noWrap'           => false,
+            ];
+
+            $hasLeft  = !empty($leftImgs);
+            $hasRight = !empty($rightImgs);
+
+            // Helper to add an image into a cell safely
+            $addImgToCell = function ($cell, array $img) use ($fntXSm) {
+                $src = $img['src'];
+                try {
+                    if (str_starts_with($src, 'data:')) {
+                        $parts   = explode(',', $src, 2);
+                        $tmpFile = tempnam(sys_get_temp_dir(), 'hfimg_') . '.png';
+                        file_put_contents($tmpFile, base64_decode($parts[1] ?? ''));
+                        $cell->addImage($tmpFile, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
+                        @unlink($tmpFile);
+                    } else {
+                        $cell->addImage($src, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
+                    }
+                } catch (\Throwable $e) {
+                    $cell->addText('[img]', $fntXSm);
+                }
+            };
+
+            // No images — plain single-cell row
+            if (!$hasLeft && !$hasRight) {
+                $tbl = $sec->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+                $tbl->addRow();
+                $tbl->addCell($pageW, $cellBase)->addText($plainText, $fntXSm);
+                return;
+            }
+
+            // 3-column layout: [left-img | center text | right-img]
+            $imgColW  = (int)($pageW * 0.15);
+            $textColW = $pageW - ($hasLeft ? $imgColW : 0) - ($hasRight ? $imgColW : 0);
+
+            $tbl = $sec->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+            $tbl->addRow();
+
+            if ($hasLeft) {
+                usort($leftImgs, fn($a, $b) => $a['left'] <=> $b['left']);
+                $lCell = $tbl->addCell($imgColW, $cellBase);
+                foreach ($leftImgs as $img) { $addImgToCell($lCell, $img); }
+            }
+
+            $cCell = $tbl->addCell($textColW, array_merge($cellBase, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]));
+            if ($plainText !== '') { $cCell->addText($plainText, $fntXSm); }
+
+            if ($hasRight) {
+                usort($rightImgs, fn($a, $b) => $a['left'] <=> $b['left']);
+                $rCell = $tbl->addCell($imgColW, array_merge($cellBase, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::RIGHT]));
+                foreach ($rightImgs as $img) { $addImgToCell($rCell, $img); }
+            }
+        };
+
+        // ════════════════════════════════════════════════════════════════════
+        // PAGE 1 — Course Overview (Step 1 + Step 2 top section)
+        // ════════════════════════════════════════════════════════════════════
+        $sec1 = $phpWord->addSection($sectionStyle);
+
+        // Custom header strip (matches PDF custom-header)
+        $addHfTable($sec1, $header, false);
+
+        $sec1->addText(
+            'POLYTECHNIC UNIVERSITY OF THE PHILIPPINES',
+            [
+                'name' => 'Arial Narrow',
+                'size' => 10,
+                'bold' => true
+            ],
+            [
+                'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
+                'spaceAfter' => 0
+            ]
         );
 
-        // CLEAN HTML FOR PHPWORD
-        $html = preg_replace('/<!DOCTYPE[^>]*>/i', '', $html);
-        $html = preg_replace('/<meta[^>]+>/i', '', $html);
+        $sec1->addText(
+            'OFFICE OF THE VICE PRESIDENT FOR CAMPUSES',
+            [
+                'name' => 'Arial Narrow',
+                'size' => 9
+            ],
+            [
+                'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
+                'spaceAfter' => 0
+            ]
+        );
 
-        libxml_use_internal_errors(true);
+        $sec1->addText(
+            'Santa Rosa Campus',
+            [
+                'name' => 'Arial Narrow',
+                'size' => 9
+            ],
+            [
+                'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
+                'spaceAfter' => 200
+            ]
+        );
 
-        $phpWord = new PhpWord();
+        // ── BANNER: "BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY / OUTCOMES-BASED COURSE SYLLABUS"
+        // Matches COMP001 template: dark background banner rendered as a shaped text box.
+        // We approximate it with a shaded table row (dark blue, white text), centered.
+        $bgDarkBanner = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'];
+        $bannerTable = $sec1->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+        $bannerTable->addRow(500);
+        $bannerCell = $bannerTable->addCell($pageW, array_merge($border, [
+            'shading'     => $bgDarkBanner,
+            'cellMargin'  => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
+            'valign'      => 'center',
+        ]));
+        $bannerCell->addText(
+            'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY',
+            [
+                'name'  => 'Arial Narrow',
+                'size'  => 13,
+                'bold'  => true,
+                'color' => 'FFFFFF'
+            ],
+            [
+                'alignment'  => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
+                'spaceAfter' => 0,
+                'spaceBefore'=> 0
+            ]
+        );
 
-        $section = $phpWord->addSection([
-            'orientation' => 'landscape',
-            'pageSizeW'   => Converter::cmToTwip(29.7),
-            'pageSizeH'   => Converter::cmToTwip(21.0),
-            'marginTop'   => Converter::cmToTwip(1.5),
-            'marginBottom'=> Converter::cmToTwip(1.5),
-            'marginLeft'  => Converter::cmToTwip(1.8),
-            'marginRight' => Converter::cmToTwip(1.8),
+        $bannerCell->addText(
+            'OUTCOMES-BASED COURSE SYLLABUS',
+            [
+                'name'  => 'Arial Narrow',
+                'size'  => 11,
+                'bold'  => true,
+                'color' => 'FFFFFF'
+            ],
+            [
+                'alignment'  => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
+                'spaceAfter' => 0,
+                'spaceBefore'=> 0
+            ]
+        );
+
+        // ── MAIN COURSE INFORMATION TABLE
+        // Matches COMP001 layout: one unified table with:
+        //   Row 0: "COURSE INFORMATION" spanning all 6 columns (merged header)
+        //   Row 1: COURSE CODE | value | COURSE TITLE | value | COURSE CREDIT | value
+        //   Row 2: COURSE DESCRIPTION (spanning col 0) | description text (spanning cols 1-5)
+        //   Row 3: PRE-REQUISITES | value | CO-REQUISITES | value (spanning remaining)
+        //   Row 4+: VISION / MISSION / QUALITY STATEMENT POLICY / ILO (label col + value spanning 5)
+        $bgHeaderCell = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'B4C6E7'];
+        $fntLabel     = ['name' => 'Arial Narrow', 'size' => 9, 'bold' => true];
+        $fntValue     = ['name' => 'Arial Narrow', 'size' => 9];
+        $fntValueBold = ['name' => 'Arial Narrow', 'size' => 9, 'bold' => true];
+
+        // Column widths: 6-column grid matching COMP001 proportions
+        $cW1 = (int)($pageW * 0.11);  // label: COURSE CODE
+        $cW2 = (int)($pageW * 0.15);  // value: code
+        $cW3 = (int)($pageW * 0.11);  // label: COURSE TITLE
+        $cW4 = (int)($pageW * 0.33);  // value: title
+        $cW5 = (int)($pageW * 0.13);  // label: COURSE CREDIT
+        $cW6 = $pageW - $cW1 - $cW2 - $cW3 - $cW4 - $cW5; // value: credit
+
+        $mainTable = $sec1->addTable([
+            'width' => $pageW,
+            'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP,
+            'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER,
         ]);
 
-        libxml_use_internal_errors(true);
+        // ── Row 0: "COURSE INFORMATION" spanning header ──────────────────────
+        $mainTable->addRow(350);
+        $ciCell = $mainTable->addCell($pageW, array_merge($border, [
+            'gridSpan'   => 6,
+            'shading'    => $bgLightGray,
+            'cellMargin' => $cellPad,
+            'valign'     => 'center',
+        ]));
+        $ciCell->addText('COURSE INFORMATION', ['name' => 'Arial Narrow', 'size' => 10, 'bold' => true], $center);
 
-        // REMOVE DOCTYPE
-        $html = preg_replace('/<!DOCTYPE[^>]*>/i', '', $html);
+        // ── Row 1: COURSE CODE | value | COURSE TITLE | value | COURSE CREDIT | value ──
+        $mainTable->addRow(350);
+        $mainTable->addCell($cW1, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('COURSE CODE', $fntLabel, $center);
+        $mainTable->addCell($cW2, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'center']))->addText($courseCode, $fntValueBold, $center);
+        $mainTable->addCell($cW3, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('COURSE TITLE', $fntLabel, $center);
+        $mainTable->addCell($cW4, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'center']))->addText($courseTitle, $fntValueBold, $center);
+        $mainTable->addCell($cW5, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('COURSE CREDIT', $fntLabel, $center);
+        $mainTable->addCell($cW6, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'center']))->addText($credit, $fntValueBold, $center);
 
-        // REMOVE <html>, <head>, <body>
-        $html = preg_replace('/<\/?(html|body)[^>]*>/i', '', $html);
+        // ── Row 2: COURSE DESCRIPTION ─────────────────────────────────────────
+        $mainTable->addRow(350);
+        $mainTable->addCell($cW1, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('COURSE DESCRIPTION', $fntLabel, $center);
+        $descCell = $mainTable->addCell($cW2 + $cW3 + $cW4 + $cW5 + $cW6, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
+        $descCell->addText($description ?: ' ', $fntValue);
 
-        // REMOVE <head>...</head>
-        $html = preg_replace('/<head\b[^>]*>(.*?)<\/head>/is', '', $html);
+        // ── Row 3: PRE-REQUISITES | value | CO-REQUISITES | value ─────────────
+        $mainTable->addRow(350);
+        $mainTable->addCell($cW1, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('PRE-REQUISITES', $fntLabel, $center);
+        $mainTable->addCell($cW2, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'center']))->addText($preReq, $fntValue);
+        $mainTable->addCell($cW3, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('CO-REQUISITES', $fntLabel, $center);
+        $coCell = $mainTable->addCell($cW4 + $cW5 + $cW6, array_merge($border, ['gridSpan' => 3, 'cellMargin' => $cellPad, 'valign' => 'center']));
+        $coCell->addText($coReq, $fntValue);
 
-        // REMOVE <style>...</style>
-        $html = preg_replace('/<style\b[^>]*>(.*?)<\/style>/is', '', $html);
+        // ── Rows 4+: VISION / MISSION / QUALITY / ILO (2-col: label | value spanning 5) ──
+        $labelSpanW = $cW1;            // label column width
+        $valueSpanW = $pageW - $cW1;   // value spans remaining 5 columns
 
-        // REMOVE <meta>
-        $html = preg_replace('/<meta[^>]+>/i', '', $html);
+        foreach ([
+            ['VISION',                                   $vision],
+            ['MISSION',                                  $mission],
+            ['QUALITY POLICY STATEMENT',                 $quality],
+        ] as [$lbl, $val]) {
+            $mainTable->addRow(350);
+            $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText($lbl, $fntLabel, $center);
+            $vCell = $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
+            $vCell->addText($val ?: ' ', $fntValue);
+        }
 
-        // REMOVE colgroup (PhpWord crashes on it)
-        $html = preg_replace('/<colgroup\b[^>]*>(.*?)<\/colgroup>/is', '', $html);
+        // ILO row
+        if (!empty($ilos)) {
+            $mainTable->addRow(350);
+            $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('INSTITUTIONAL LEARNING OUTCOMES (ILO)', $fntLabel, $center);
+            $iloCell = $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
+            foreach ($ilos as $i => $ilo) {
+                $iloText = ($i + 1) . '. ' . $t($s($ilo['title'] ?? ($ilo['text'] ?? '')));
+                $iloCell->addText($iloText, $fntValue);
+            }
+        }
 
-        // REMOVE thead/tbody
-        $html = str_replace(
-            ['<thead>', '</thead>', '<tbody>', '</tbody>'],
-            '',
-            $html
-        );
+        // Custom footer strip
+        $addHfTable($sec1, $footer, true);
 
-        // CLEAN INVALID UTF
-        $html = mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8');
+        // ════════════════════════════════════════════════════════════════════
+        // PAGE 2 — PLO/ILO + CLO/PLO Mapping (Step 2)
+        // ════════════════════════════════════════════════════════════════════
+        $sec2 = $phpWord->addSection($sectionStyle);
 
-        // WRAP CLEAN HTML
-        $html = "<div>{$html}</div>";
+        $addHfTable($sec2, $header, false);
 
-        Html::addHtml($section, $html, false, false);
+        // Banner (same dark style as Page 1)
+        $bannerTable2 = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+        $bannerTable2->addRow();
+        $bannerCell2 = $bannerTable2->addCell($pageW, array_merge($border, [
+            'shading'    => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'],
+            'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
+            'valign'     => 'center',
+        ]));
+        $bannerCell2->addText('BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY', ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
+        $bannerCell2->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 14, 'bold' => true, 'color' => 'FFFFFF'], $center);
 
+        // PLO → ILO table
+        $sec2->addText('PROGRAM LEARNING OUTCOMES', $fntBold);
+        $sec2->addText('Based on CHED Memorandum Order (CMO) No. 25, series of 2015', $fntXSm);
+
+        $ploIloColW = (int)(($pageW - (int)($pageW * 0.45)) / $iloCount);
+        $ploLblW    = $pageW - ($ploIloColW * $iloCount);
+        $ploTable   = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+        // Header row: label + ILO numbers
+        $ploTable->addRow(350);
+        $ploTable->addCell($ploLblW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))
+            ->addText('Program Learning Outcomes', array_merge($fntSm, ['bold' => true]));
+        for ($n = 1; $n <= $iloCount; $n++) {
+            $c = $ploTable->addCell($ploIloColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+            $c->addText((string)$n, array_merge($fntSm, ['bold' => true]), $center);
+        }
+
+        // PLO rows
+        foreach ($plos as $plo) {
+            $pid = $plo['id'] ?? '';
+            $lbl = $t($s($plo['label'] ?? ($plo['description'] ?? '')));
+            $ploTable->addRow(350);
+            $ploTable->addCell($ploLblW, array_merge($border, ['cellMargin' => $cellPad]))->addText($lbl, $fntSm);
+            for ($n = 1; $n <= $iloCount; $n++) {
+                $checked = !empty($iloMapping["{$pid}-{$n}"]);
+                $c = $ploTable->addCell($ploIloColW, array_merge($border, ['cellMargin' => $cellPad]));
+                $c->addText($checked ? '✓' : '', array_merge($fntSm, ['bold' => true]), $center);
+            }
+        }
+
+        // CLO → PLO table
+        $sec2->addText('COURSE LEARNING OUTCOMES', $fntBold);
+        $sec2->addText('After completion of the course, the students should be able to:', $fntSm);
+
+        $ploCount   = count($plos);
+        $cloColW    = $ploCount > 0 ? (int)(($pageW * 0.55) / $ploCount) : (int)($pageW * 0.055);
+        $cloLblW    = $pageW - ($cloColW * $ploCount);
+        $cloTable   = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+        // Header row
+        $cloTable->addRow(350);
+        $cloTable->addCell($cloLblW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))
+            ->addText('Course Learning Outcomes', array_merge($fntSm, ['bold' => true]));
+        foreach ($plos as $i => $plo) {
+            $c = $cloTable->addCell($cloColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+            $c->addText((string)($i + 1), array_merge($fntSm, ['bold' => true]), $center);
+        }
+
+        // CLO rows
+        foreach ($clos as $clo) {
+            $cid = $clo['id'] ?? '';
+            $lbl = $t($s($clo['text'] ?? ($clo['description'] ?? '')));
+            $cloTable->addRow(350);
+            $cloTable->addCell($cloLblW, array_merge($border, ['cellMargin' => $cellPad]))->addText($lbl, $fntSm);
+            foreach ($plos as $plo) {
+                $pid = $plo['id'] ?? '';
+                $val = $s($ploMapping["{$cid}-{$pid}"] ?? '');
+                $c   = $cloTable->addCell($cloColW, array_merge($border, ['cellMargin' => $cellPad]));
+                $c->addText($val, array_merge($fntSm, ['bold' => true]), $center);
+            }
+        }
+
+        $sec2->addText('Legend: L-Learned, P-Practiced, O-Opportunity to Learn', $fntXSm);
+
+        $addHfTable($sec2, $footer, true);
+
+        // ════════════════════════════════════════════════════════════════════
+        // PAGES — OBTL (Step 3), 7 rows per page
+        // ════════════════════════════════════════════════════════════════════
+        $ROWS_PER_PAGE = 7;
+        $obtlPages     = array_chunk($obtlData, $ROWS_PER_PAGE) ?: [[]];
+
+        // Column widths (8 cols) — proportional to CSS percentages
+        $obtlWidths = [
+            (int)($pageW * 0.06),  // Weeks
+            (int)($pageW * 0.18),  // DLO
+            (int)($pageW * 0.10),  // CLO alignment
+            (int)($pageW * 0.15),  // Topics
+            (int)($pageW * 0.13),  // Face-to-face
+            (int)($pageW * 0.13),  // Sync
+            (int)($pageW * 0.13),  // Async
+            0,                     // Tasks — fill remainder
+        ];
+        $obtlWidths[7] = $pageW - array_sum(array_slice($obtlWidths, 0, 7));
+
+        foreach ($obtlPages as $pageIdx => $pageRows) {
+            $isFirst = $pageIdx === 0;
+            $isLast  = $pageIdx === count($obtlPages) - 1;
+
+            $secO = $phpWord->addSection($sectionStyle);
+
+            $addHfTable($secO, $header, false);
+
+            // Banner (same dark style as other pages)
+            $obtlBanner = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+            $obtlBanner->addRow();
+            $obtlBannerCell = $obtlBanner->addCell($pageW, array_merge($border, [
+                'shading'    => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'],
+                'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
+                'valign'     => 'center',
+            ]));
+            $obtlBannerCell->addText('BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY', ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
+            $obtlBannerCell->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 14, 'bold' => true, 'color' => 'FFFFFF'], $center);
+
+            // OBTL table
+            $obtlTable = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+            if ($isFirst) {
+                // Header rows (3 rows with rowspan/colspan simulated)
+                // Row 1: 4 rowspan=3 cells + "Instructional Delivery Design" (colspan=3) + rowspan=3
+                $obtlTable->addRow(350);
+                foreach ([
+                    ['w' => $obtlWidths[0], 'txt' => "Weeks\n(18 Weeks)", 'rs' => 3],
+                    ['w' => $obtlWidths[1], 'txt' => 'Learning Outcomes (DLOs)', 'rs' => 3],
+                    ['w' => $obtlWidths[2], 'txt' => 'Alignment to (CLOs)', 'rs' => 3],
+                    ['w' => $obtlWidths[3], 'txt' => 'Learning Content/Topics', 'rs' => 3],
+                ] as $col) {
+                    $opts = array_merge($border, ['fill' => 'F4CCCC', 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
+                    $c = $obtlTable->addCell($col['w'], $opts);
+                    $c->addText($col['txt'], array_merge($fntSm, ['bold' => true]), $center);
+                }
+                // "Instructional Delivery Design" spans 3 cols
+                $iddW = $obtlWidths[4] + $obtlWidths[5] + $obtlWidths[6];
+                $iddCell = $obtlTable->addCell($iddW, array_merge($border, ['fill' => 'D9EAF7', 'gridSpan' => 3, 'valign' => 'center', 'cellMargin' => $cellPad]));
+                $iddCell->addText('Instructional Delivery Design', array_merge($fntSm, ['bold' => true]), $center);
+                // Assessment Tasks rowspan=3
+                $opts = array_merge($border, ['fill' => 'F4CCCC', 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
+                $c = $obtlTable->addCell($obtlWidths[7], $opts);
+                $c->addText('Assessment Tasks (TAs)', array_merge($fntSm, ['bold' => true]), $center);
+
+                // Row 2: first 4 + FLTAs colspan=2 + last skip
+                $obtlTable->addRow(350);
+                foreach (range(0, 3) as $ci) {
+                    $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+                }
+                $fltaW = $obtlWidths[5] + $obtlWidths[6];
+                $obtlTable->addCell($obtlWidths[4], array_merge($border, ['fill' => 'D9EAF7', 'valign' => 'center', 'cellMargin' => $cellPad]))
+                    ->addText('Face-to-Face', array_merge($fntSm, ['bold' => true]), $center);
+                $fltaCell = $obtlTable->addCell($fltaW, array_merge($border, ['fill' => 'D9EAF7', 'gridSpan' => 2, 'valign' => 'center', 'cellMargin' => $cellPad]));
+                $fltaCell->addText('Flexible Learning and Teaching Activities (FLTAs)', array_merge($fntSm, ['bold' => true]), $center);
+                $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+
+                // Row 3: first 4 + face-to-face + sync + async + last skip
+                $obtlTable->addRow(350);
+                foreach (range(0, 3) as $ci) {
+                    $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+                }
+                $obtlTable->addCell($obtlWidths[4], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+                $obtlTable->addCell($obtlWidths[5], array_merge($border, ['fill' => 'D9EAF7', 'valign' => 'center', 'cellMargin' => $cellPad]))
+                    ->addText('Synchronous', $fntXSm, $center);
+                $obtlTable->addCell($obtlWidths[6], array_merge($border, ['fill' => 'D9EAF7', 'valign' => 'center', 'cellMargin' => $cellPad]))
+                    ->addText('Asynchronous', $fntXSm, $center);
+                $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+            }
+
+            // Data rows
+            foreach ($pageRows as $row) {
+                $obtlTable->addRow(350);
+                if (($row['type'] ?? '') === 'header') {
+                    // Span all 8 columns
+                    $spanW = array_sum($obtlWidths);
+                    $c = $obtlTable->addCell($spanW, array_merge($border, ['gridSpan' => 8, 'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'FFFBEB'], 'cellMargin' => $cellPad]));
+                    $c->addText($t($s($row['topics'] ?? '')), array_merge($fntSm, ['bold' => true]), $center);
+                } else {
+                    $cols = [
+                        $t($s($row['weeks']        ?? '')),
+                        $t($s($row['dlo']          ?? '')),
+                        $t($s($row['clo']          ?? '')),
+                        $t($s($row['topics']       ?? '')),
+                        $t($s($row['deliveryFace'] ?? '')),
+                        $t($s($row['deliverySync'] ?? '')),
+                        $t($s($row['deliveryAsync']?? '')),
+                        $t($s($row['tasks']        ?? '')),
+                    ];
+                    foreach ($cols as $ci => $txt) {
+                        $align = $ci === 0 ? $center : [];
+                        $c = $obtlTable->addCell(
+                            $obtlWidths[$ci],
+                            array_merge($border, [
+                                'cellMargin' => $cellPad,
+                                'valign' => 'center'
+                            ])
+                        );
+                        $c->addText($txt, $fntSm, $align);
+                    }
+                }
+            }
+
+            // References on last OBTL page — wrapped in a bordered table matching PDF
+            if ($isLast) {
+                $secO->addText('');
+                $refTable = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+                // NALLRC header row
+                $refTable->addRow(350);
+                $nallrcCell = $refTable->addCell($pageW, array_merge($border, ['cellMargin' => $cellPad]));
+                $nallrcCell->addText('REFERENCES FROM THE NINOY AQUINO LEARNING AND LIBRARY RESOURCES CENTER (NALLRC)', array_merge($fntSm, ['bold' => true]));
+                $nallrcCell->addText('OUTCOMES-BASED BOOK LISTINGS (CBBL)', array_merge($fntSm, ['bold' => true]));
+
+                // NALLRC content row
+                $refTable->addRow(350);
+                $nallrcContent = $refTable->addCell($pageW, array_merge($border, ['cellMargin' => $cellPad]));
+                if (empty($references)) {
+                    $nallrcContent->addText('No references added.', array_merge($fntSm, ['italic' => true]));
+                } else {
+                    foreach ($references as $ref) {
+                        $nallrcContent->addText($t($s($ref['text'] ?? '')), $fntSm);
+                    }
+                }
+
+                // Other References header row
+                $refTable->addRow(350);
+                $refTable->addCell($pageW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText('OTHER REFERENCES', array_merge($fntSm, ['bold' => true]));
+
+                // Other references content row
+                $refTable->addRow(350);
+                $otherContent = $refTable->addCell($pageW, array_merge($border, ['cellMargin' => $cellPad]));
+                if (empty($otherRefs)) {
+                    $otherContent->addText('No other references added.', array_merge($fntSm, ['italic' => true]));
+                } else {
+                    foreach ($otherRefs as $ref) {
+                        $otherContent->addText($t($s($ref['text'] ?? '')), $fntSm);
+                    }
+                }
+            }
+
+            $addHfTable($secO, $footer, true);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // PAGE — Classroom Policies (Step 4)
+        // ════════════════════════════════════════════════════════════════════
+        $secP = $phpWord->addSection($sectionStyle);
+
+        $addHfTable($secP, $header, false);
+
+        // Section banner — matches PDF .section-banner "CLASSROOM POLICIES (TO BE FILLED OUT BY THE ASSIGNED FACULTY)"
+        $addSectionBanner($secP, 'CLASSROOM POLICIES (TO BE FILLED OUT BY THE ASSIGNED FACULTY)');
+
+        $policyColW = (int)($pageW / 2);
+        $policyTable = $secP->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+        $policyTable->addRow();
+
+        // Header row inside the table (matches PDF table header row)
+        $ph1 = $policyTable->addCell($policyColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+        $ph1->addText('FACE-TO-FACE DELIVERY', array_merge($fntSm, ['bold' => true]), $center);
+        $ph2 = $policyTable->addCell($policyColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+        $ph2->addText('FLEXIBLE TEACHING AND LEARNING ACTIVITIES (FLTAS)', array_merge($fntSm, ['bold' => true]), $center);
+
+        $policyTable->addRow();
+        $f2fCell  = $policyTable->addCell($policyColW, array_merge($border, ['cellMargin' => $cellPad]));
+        $fltaCell = $policyTable->addCell($policyColW, array_merge($border, ['cellMargin' => $cellPad]));
+
+        // General classroom guidelines
+        $f2fCell->addText('General Classroom Guidelines:', array_merge($fntSm, ['bold' => true]));
+        if (!empty($generalPolicies)) {
+            foreach ($generalPolicies as $i => $p) {
+                $f2fCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+            }
+        } else {
+            // Default policies
+            foreach ([
+                'Students shall attend set contact schedule ready with all materials and outputs required.',
+                'PLAGIARISM SHALL NOT BE TOLERATED.',
+                'Requirements shall be submitted on time. Late submissions will be subjected to deductions.',
+                'Students with any form of disability must inform the course instructor immediately.',
+                'All students are expected to read and strictly observe the PUP Student Code of Conduct.',
+            ] as $i => $p) {
+                $f2fCell->addText(($i + 1) . '. ' . $p, $fntSm);
+            }
+        }
+        if ($f2fLink) {
+            $f2fCell->addText($f2fLink, array_merge($fntSm, ['color' => '1a56db']));
+        }
+        $f2fCell->addText('');
+        $f2fCell->addText('Guidelines for the face-to-face delivery:', array_merge($fntSm, ['bold' => true]));
+        if (!empty($f2fPolicies)) {
+            foreach ($f2fPolicies as $i => $p) {
+                $f2fCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+            }
+        } else {
+            foreach ([
+                'Strictly observe the minimum health protocols set by the university.',
+                'Check your schedule on the class Facebook page before going to school.',
+                'Be mindful of your classmates and teacher\'s time.',
+            ] as $i => $p) {
+                $f2fCell->addText(($i + 1) . '. ' . $p, $fntSm);
+            }
+        }
+
+        // Sync/Async sessions
+        $fltaCell->addText('Synchronous Sessions:', array_merge($fntSm, ['bold' => true]));
+        if (!empty($syncPolicies)) {
+            foreach ($syncPolicies as $i => $p) {
+                $fltaCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+            }
+        } else {
+            foreach ([
+                'Check your device ahead of your scheduled synchronous meeting (camera, microphone, etc.)',
+                'Attend the synchronous class on time.',
+                'Be ready to turn on your microphone and camera anytime.',
+                'Choose a comfortable space to attend the online class.',
+                'Click the \'raise hand\' button and wait to be acknowledged before unmuting.',
+                'Do not abuse the chatbox.',
+                'Read the assigned materials before attending the class.',
+            ] as $i => $p) {
+                $fltaCell->addText(($i + 1) . '. ' . $p, $fntSm);
+            }
+        }
+        $fltaCell->addText('');
+        $fltaCell->addText('Asynchronous Sessions:', array_merge($fntSm, ['bold' => true]));
+        if (!empty($asyncPolicies)) {
+            foreach ($asyncPolicies as $i => $p) {
+                $fltaCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+            }
+        } else {
+            foreach ([
+                'Study the sections and functions of the assigned learning management system (LMS) ahead of time.',
+                'Check the expected submission schedule at all times.',
+                'Ask for help from your teacher(s) and classmates when necessary.',
+            ] as $i => $p) {
+                $fltaCell->addText(($i + 1) . '. ' . $p, $fntSm);
+            }
+        }
+
+        $addHfTable($secP, $footer, true);
+
+        // ════════════════════════════════════════════════════════════════════
+        // PAGE — Course Requirements & Grading (Step 4 continued)
+        // ════════════════════════════════════════════════════════════════════
+        $secG = $phpWord->addSection($sectionStyle);
+
+        $addHfTable($secG, $header, false);
+
+        // Section banner matching PDF
+        $addSectionBanner($secG, 'COURSE REQUIREMENTS & EVALUATION');
+
+        $gradW1 = (int)($pageW * 0.60);
+        $gradW2 = $pageW - $gradW1;
+        $gradTable = $secG->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+        $gradTable->addRow();
+
+        $reqCell  = $gradTable->addCell($gradW1, array_merge($border, ['cellMargin' => $cellPad]));
+        $gradCell = $gradTable->addCell($gradW2, array_merge($border, ['cellMargin' => $cellPad]));
+
+        $reqCell->addText('COURSE REQUIREMENTS', array_merge($fntNorm, ['bold' => true, 'underline' => \PhpOffice\PhpWord\Style\Font::UNDERLINE_SINGLE]));
+        foreach ($requirements as $req) {
+            $txt = $t($s($req['text'] ?? ''));
+            $clo = $s($req['clo'] ?? '');
+            $line = '• ' . $txt . ($clo ? ' (' . $clo . ')' : '');
+            $reqCell->addText($line, $fntNorm);
+        }
+
+        $gradCell->addText('GRADING SYSTEM', array_merge($fntNorm, ['bold' => true, 'underline' => \PhpOffice\PhpWord\Style\Font::UNDERLINE_SINGLE]));
+        foreach ($gradingComponents as $comp) {
+            $lbl  = $t($s($comp['label'] ?? ($comp['name'] ?? '')));
+            $pct  = (int)($comp['percentage'] ?? 0);
+            $subs = isset($comp['subItems']) ? implode(', ', array_map(fn($sub) => $t($s($sub['label'] ?? '')), $comp['subItems'])) : '';
+
+            $gradCell->addText($lbl, array_merge($fntNorm, ['bold' => true]));
+            if ($subs) $gradCell->addText($subs, $fntXSm);
+            $gradCell->addText($pct . '%', $fntNorm);
+            $gradCell->addText('');
+        }
+        $gradCell->addText('TOTAL: 100%', array_merge($fntNorm, ['bold' => true]));
+
+        $addHfTable($secG, $footer, true);
+
+        // ════════════════════════════════════════════════════════════════════
+        // PAGES — Rubrics + Group Grade + Class Info + Signatories (Step 5)
+        // ════════════════════════════════════════════════════════════════════
+        $RUBRIC_PER_PAGE = 5;
+        $rubricPages     = array_chunk($rubrics, $RUBRIC_PER_PAGE) ?: [[]];
+
+        foreach ($rubricPages as $pageIdx => $pageRubrics) {
+            $isFirst = $pageIdx === 0;
+
+            $secR = $phpWord->addSection($sectionStyle);
+
+            $addHfTable($secR, $header, false);
+
+            if ($isFirst) {
+                $secR->addText('Part 1. Rubrics for Assessment (to be filled out by the assigned faculty)', array_merge($fntSm, ['bold' => true]));
+            } else {
+                $secR->addText('Rubrics for Assessment (continued)', $fntSm);
+            }
+
+            // Rubric table: Skills | 4-Advanced | 3-Competent | 2-Progressing | 1-Beginning
+            $rW = (int)($pageW * 0.20);
+            $rColW = (int)(($pageW - $rW) / 4);
+            $rubTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+            // Header row 1 — numbers
+            $rubTable->addRow();
+            $rubTable->addCell($rW, array_merge($border, ['shading' => $bgGray, 'vMerge' => 'restart', 'cellMargin' => $cellPad]))
+                ->addText('Skills', array_merge($fntSm, ['bold' => true]), $center);
+            foreach ([['4', 'Advanced'], ['3', 'Competent'], ['2', 'Progressing'], ['1', 'Beginning']] as [$num, $lbl]) {
+                $c = $rubTable->addCell($rColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+                $c->addText($num, array_merge($fntSm, ['bold' => true]), $center);
+            }
+
+            // Header row 2 — level names
+            $rubTable->addRow();
+            $rubTable->addCell($rW, array_merge($border, ['vMerge' => 'continue']))->addText('');
+            foreach (['Advanced', 'Competent', 'Progressing', 'Beginning'] as $lbl) {
+                $c = $rubTable->addCell($rColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+                $c->addText($lbl, array_merge($fntSm, ['bold' => true]), $center);
+            }
+
+            // Rubric data rows
+            foreach ($pageRubrics as $r) {
+                $rubTable->addRow();
+                $rubTable->addCell($rW, array_merge($border, ['cellMargin' => $cellPad]))->addText($t($s($r['skills'] ?? '')), array_merge($fntSm, ['bold' => true]));
+                foreach (['v4', 'v3', 'v2', 'v1'] as $vk) {
+                    $rubTable->addCell($rColW, array_merge($border, ['cellMargin' => $cellPad]))->addText($t($s($r[$vk] ?? '')), $fntSm);
+                }
+            }
+
+            // Group grade + Class/Faculty info + Signatories on first rubric page only
+            if ($isFirst) {
+                $secR->addText('');
+                $secR->addText('Part 2. Group grade', array_merge($fntSm, ['bold' => true]));
+
+                $groupW = [(int)($pageW * 0.65)];
+                for ($n = 0; $n < 4; $n++) $groupW[] = (int)(($pageW - $groupW[0]) / 4);
+                $groupTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+                // Header
+                $groupTable->addRow();
+                $groupTable->addCell($groupW[0], array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))->addText('Criteria', array_merge($fntSm, ['bold' => true]));
+                foreach ([1, 2, 3, 4] as $n) {
+                    $groupTable->addCell($groupW[$n], array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))->addText((string)$n, array_merge($fntSm, ['bold' => true]), $center);
+                }
+
+                foreach ($groupCriteria as $i => $g) {
+                    $groupTable->addRow();
+                    $lbl = $t($s($g['label'] ?? ''));
+                    $wt  = $s($g['weight'] ?? '');
+                    $sc  = (int)($g['score'] ?? 0);
+                    $groupTable->addCell($groupW[0], array_merge($border, ['cellMargin' => $cellPad]))->addText(($i + 1) . '. ' . $lbl . ($wt ? " ({$wt}%)" : ''), $fntSm);
+                    foreach ([1, 2, 3, 4] as $n) {
+                        $c = $groupTable->addCell($groupW[$n], array_merge($border, ['cellMargin' => $cellPad]));
+                        $c->addText($sc === $n ? '✔' : '', $fntSm, $center);
+                    }
+                }
+
+                // Class info + Faculty info
+                $secR->addText('');
+                $ciW = (int)($pageW / 2);
+                $ciTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+                $ciTable->addRow();
+                $ciHdr = $ciTable->addCell($ciW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+                $ciHdr->addText('CLASS INFORMATION', array_merge($fntSm, ['bold' => true]), $center);
+                $fiHdr = $ciTable->addCell($ciW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
+                $fiHdr->addText('FACULTY INFORMATION', array_merge($fntSm, ['bold' => true]), $center);
+
+                $ciTable->addRow();
+                $ciBody = $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]));
+                $fiBody = $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]));
+
+                $ciSection  = $t($s($classInfo['section']  ?? ''));
+                $ciTime     = $t($s($classInfo['time']     ?? ($classInfo['schedule'] ?? '')));
+                $ciRoom     = $t($s($classInfo['room']     ?? ''));
+                $ciSemester = $t($s($classInfo['semester'] ?? ''));
+                $fiName     = $t($s($facultyInfo['name']        ?? ''));
+                $fiConsult  = $t($s($facultyInfo['consultation'] ?? ''));
+                $fiContact  = $t($s($facultyInfo['contact']     ?? ($facultyInfo['office'] ?? '')));
+                $fiEmail    = $t($s($facultyInfo['email']       ?? ''));
+
+                foreach ([
+                    "Section: {$ciSection}",
+                    "Time: {$ciTime}",
+                    "Room: {$ciRoom}",
+                    "Semester: {$ciSemester}",
+                ] as $line) $ciBody->addText($line, $fntSm);
+
+                foreach ([
+                    "Name of Faculty: {$fiName}",
+                    "Consultation Time: {$fiConsult}",
+                    "Office Tel. No./ Mobile Phone No.: {$fiContact}",
+                    "Institutional Email: {$fiEmail}",
+                ] as $line) $fiBody->addText($line, $fntSm);
+
+                // Signatories
+                if (!empty($signatories)) {
+                    $secR->addText('');
+                    $sigColW = (int)($pageW / max(1, count($signatories)));
+                    $sigTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+                    $sigTable->addRow();
+                    foreach ($signatories as $sig) {
+                        $sName  = $t($s($sig['name']  ?? '______________________'));
+                        $sTitle = $t($s($sig['title'] ?? ''));
+                        $sRole  = $t($s($sig['role']  ?? ''));
+                        $sCell  = $sigTable->addCell($sigColW, array_merge($border, ['cellMargin' => $cellPad]));
+                        $sCell->addText('');  // space for signature
+                        $sCell->addText('');
+                        $sCell->addText(strtoupper($sName), array_merge($fntSm, ['bold' => true]), $center);
+                        $sCell->addText($sTitle, $fntXSm, $center);
+                        $sCell->addText($sRole, array_merge($fntXSm, ['italic' => true]), $center);
+                    }
+                }
+            }
+
+            $addHfTable($secR, $footer, true);
+        }
+
+        // ── Write & stream ───────────────────────────────────────────────────
         $tmpPath = tempnam(sys_get_temp_dir(), 'syllabus_') . '.docx';
-
-        IOFactory::createWriter($phpWord, 'Word2007')->save($tmpPath);
+        \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007')->save($tmpPath);
 
         return response()->download(
             $tmpPath,
             "{$baseName}.docx",
-            [
-                'Content-Type' =>
-                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            ]
+            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
         )->deleteFileAfterSend(true);
+    }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADD these private helper methods to the class (before the closing brace):
+// ═══════════════════════════════════════════════════════════════════════════
+
+    /** Returns a full-border style array for table cells */
+    private function docxBorder(): array
+    {
+        return [
+            'borderTopSize'    => 4,
+            'borderTopColor'   => '000000',
+
+            'borderBottomSize' => 4,
+            'borderBottomColor'=> '000000',
+
+            'borderLeftSize'   => 4,
+            'borderLeftColor'  => '000000',
+
+            'borderRightSize'  => 4,
+            'borderRightColor' => '000000',
+        ];
+    }
+
+    /** Adds a plain data cell with one text run */
+    private function docxCell(\PhpOffice\PhpWord\Element\Table $table, int $width, string $text, array $border, array $pad, array $font, array $align = []): void
+    {
+        $cell = $table->addCell($width, array_merge($border, ['cellMargin' => $pad, 'noWrap' => false]));
+        $cell->addText($text ?: ' ', $font, $align ?: []);
+    }
+
+    /** Adds a bold label / header cell with light-gray background */
+    private function docxHeaderCell(\PhpOffice\PhpWord\Element\Table $table, int $width, string $text, array $border, array $pad, array $font): void
+    {
+        $cell = $table->addCell($width, array_merge($border, ['cellMargin' => $pad, 'valign' => 'center', 'noWrap' => false,
+            'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F5F5F5']]));
+        $cell->addText($text, array_merge($font, ['bold' => true]),
+            ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
+    }
+
+    /** Convenience: add a normal paragraph to a section */
+    private function docxTextPara(\PhpOffice\PhpWord\Element\Section $sec, string $text, array $font): void
+    {
+        $sec->addText($text, $font);
+    }
+
+    /** Convenience: add a bold paragraph to a section */
+    private function docxBoldPara(\PhpOffice\PhpWord\Element\Section $sec, string $text, array $font): void
+    {
+        $sec->addText($text, array_merge($font, ['bold' => true]));
     }
 
     private function buildHtml(string $courseCode, string $courseTitle,
@@ -383,10 +1415,13 @@ class SyllabusController extends Controller
             $total += $pct;
             $subs = isset($comp['subItems']) ? implode(', ', array_map(fn($s) => $h($s['label'] ?? ''), $comp['subItems'])) : '';
             $gradingRows .= "
-            <div style=\"display:flex;justify-content:space-between;border-bottom:1px dotted #ccc;padding-bottom:6px;margin-bottom:6px;font-size:8.5pt;\">
-                <div><p style=\"font-weight:bold;margin:0;\">{$lbl}</p>" . ($subs ? "<p style=\"font-size:7pt;color:#666;margin:0;\">{$subs}</p>" : '') . "</div>
-                <p style=\"font-weight:bold;margin:0;\">{$pct}%</p>
-            </div>";
+            <tr style=\"border-bottom:1px dotted #ccc;\">
+                <td style=\"padding:4px 4px 4px 0;font-size:8.5pt;vertical-align:top;\">
+                    <p style=\"font-weight:bold;margin:0;\">{$lbl}</p>" .
+                    ($subs ? "<p style=\"font-size:7pt;color:#666;margin:0;\">{$subs}</p>" : '') . "
+                </td>
+                <td style=\"padding:4px 0 4px 4px;font-size:8.5pt;font-weight:bold;text-align:right;vertical-align:top;white-space:nowrap;\">{$pct}%</td>
+            </tr>";
         }
 
         // ── Step 5 ────────────────────────────────────────────────────────────
@@ -558,41 +1593,20 @@ class SyllabusController extends Controller
 <style>
   * { box-sizing: border-box; }
   body  { font-family: Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; color: #000; }
-  .page { padding: 18px 22px; }
-  /* ── Header/Footer: never use position:absolute on img here; images are inline ── */
+  .page { padding: 10px 18px; }
   .custom-header {
-    font-size: 9px;
+    font-size: 8.5pt;
     line-height: 1.4;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 1.5px solid #aaa;
-    word-break: break-word;
-    overflow: visible;
-    /* Make absolutely-positioned images inside the div visible by reserving height */
-    min-height: 10px;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #888;
   }
-  .custom-header img { max-height: 60px; max-width: 100%; display: inline-block; vertical-align: middle; }
   .custom-footer {
-    font-size: 9px;
+    font-size: 8.5pt;
     line-height: 1.4;
-    margin-top: 8px;
-    padding-top: 6px;
-    border-top: 1.5px solid #aaa;
-    word-break: break-word;
-    overflow: visible;
-    min-height: 10px;
-  }
-  .custom-footer img { max-height: 60px; max-width: 100%; display: inline-block; vertical-align: middle; }
-  /* Strip absolute positioning from editor images so they flow in the PDF */
-  .custom-header img[data-hf-img],
-  .custom-footer img[data-hf-img] {
-    position: static !important;
-    display: inline-block !important;
-    vertical-align: middle;
-    max-height: 60px;
-    width: auto !important;
-    height: auto !important;
-    max-width: 120px;
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px solid #888;
   }
   .header-yellow { background-color: #FFF9C4; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 8px; margin-bottom: 0; font-size: 9pt; }
   .syllabus-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-wrap: break-word; font-size: 8pt; }
@@ -694,9 +1708,7 @@ class SyllabusController extends Controller
     <!-- PLO → ILO table -->
     <table style="width:100%;border-collapse:collapse;font-size:8pt;">
         <tr>
-            <td style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;">
-                <span style="font-weight:bold;font-size:7pt;writing-mode:vertical-lr;transform:rotate(180deg);display:inline-block;white-space:nowrap;">PROGRAM LEARNING OUTCOMES</span>
-            </td>
+            <td style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;">PROGRAM LEARNING OUTCOMES</td>
             <td style="border:1px solid black;padding:0;">
                 <table style="width:100%;border-collapse:collapse;font-size:8pt;">
                     <thead>
@@ -718,9 +1730,7 @@ class SyllabusController extends Controller
     <!-- CLO → PLO table -->
     <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-top:-1px;">
         <tr>
-            <td style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;">
-                <span style="font-weight:bold;font-size:7pt;writing-mode:vertical-lr;transform:rotate(180deg);display:inline-block;white-space:nowrap;">COURSE LEARNING OUTCOMES</span>
-            </td>
+            <td style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;">COURSE LEARNING OUTCOMES</td>
             <td style="border:1px solid black;padding:0;">
                 <table style="width:100%;border-collapse:collapse;font-size:8pt;">
                     <thead>
@@ -812,10 +1822,13 @@ class SyllabusController extends Controller
             </td>
             <td style="border:1px solid black;padding:14px;width:40%;">
                 <p style="font-weight:bold;font-size:9pt;text-transform:uppercase;text-decoration:underline;margin:0 0 8px;">Grading System</p>
-                {$gradingRows}
-                <div style="display:flex;justify-content:space-between;font-weight:900;font-size:10pt;border-top:2px solid black;padding-top:6px;margin-top:2px;">
-                    <span>TOTAL</span><span>100%</span>
-                </div>
+                <table style="width:100%;border-collapse:collapse;">
+                    {$gradingRows}
+                    <tr>
+                        <td style="padding:4px 4px 4px 0;font-size:10pt;font-weight:900;border-top:2px solid black;">TOTAL</td>
+                        <td style="padding:4px 0 4px 4px;font-size:10pt;font-weight:900;border-top:2px solid black;text-align:right;white-space:nowrap;">100%</td>
+                    </tr>
+                </table>
             </td>
         </tr>
     </table>
@@ -839,16 +1852,114 @@ HTML;
         return '<div class="header-yellow">Bachelor of Science in Information Technology<br/>Outcomes-Based Course Syllabus</div>';
     }
 
+    /**
+     * Convert the rich-editor HTML (which uses position:absolute for images) into
+     * a DomPDF-compatible table layout.
+     *
+     * The editor stores images like:
+     *   <img data-hf-img="true" style="position:absolute;left:Xpx;top:Ypx;width:Wpx;height:Hpx;" src="...">
+     *
+     * We split images into "left" (left < 50% of a typical 1000px editor) and "right",
+     * then build: [left-img | text content | right-img]
+     * This renders correctly in DomPDF without any absolute positioning.
+     */
+    private function layoutHfHtml(string $html): string
+    {
+        if (empty(trim($html))) return '';
+
+        // Parse with DOMDocument
+        libxml_use_internal_errors(true);
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        // Wrap in a div so we have a root; use UTF-8 encoding hint
+        $dom->loadHTML(
+            '<?xml encoding="UTF-8"><div id="__hf__">' . $html . '</div>',
+            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
+        );
+        libxml_clear_errors();
+
+        $root = $dom->getElementById('__hf__');
+        if (!$root) return '<div class="custom-hf">' . $html . '</div>';
+
+        // Collect all <img data-hf-img> nodes with their left offset
+        $leftImgs  = [];  // left < 40% of assumed 900px width → left < 360px
+        $rightImgs = [];  // left >= 60% → right side
+        $EDITOR_W  = 900; // approximate editor pixel width
+
+        $imgNodes = $dom->getElementsByTagName('img');
+        $toRemove = [];
+        foreach ($imgNodes as $img) {
+            if ($img->getAttribute('data-hf-img') !== 'true') continue;
+            $style = $img->getAttribute('style');
+            $leftPx = 0;
+            $widthPx = 80; $heightPx = 60;
+            if (preg_match('/left\s*:\s*([\d.]+)px/i', $style, $m)) $leftPx  = (float)$m[1];
+            if (preg_match('/width\s*:\s*([\d.]+)px/i', $style, $m)) $widthPx  = (int)$m[1];
+            if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx = (int)$m[1];
+            $src = $img->getAttribute('src');
+            // Cap to reasonable PDF header sizes
+            $scale = min(1, 90 / max($heightPx, 1));
+            $wFinal = max(20, (int)($widthPx  * $scale));
+            $hFinal = max(10, (int)($heightPx * $scale));
+            $imgHtml = "<img src=\"{$src}\" width=\"{$wFinal}\" height=\"{$hFinal}\" style=\"display:inline-block;vertical-align:middle;border:none;outline:none;\">";
+            if ($leftPx < $EDITOR_W * 0.5) {
+                $leftImgs[] = ['img' => $imgHtml, 'left' => $leftPx];
+            } else {
+                $rightImgs[] = ['img' => $imgHtml, 'left' => $leftPx];
+            }
+            $toRemove[] = $img;
+        }
+
+        // Remove img nodes from DOM so we can get clean text/html
+        foreach ($toRemove as $node) {
+            $node->parentNode?->removeChild($node);
+        }
+
+        // Get remaining text HTML (strip the wrapper div)
+        $inner = '';
+        foreach ($root->childNodes as $child) {
+            $inner .= $dom->saveHTML($child);
+        }
+        // Strip the outer wrapper tags DOMDocument may have added
+        $inner = preg_replace('/^<div[^>]*>|<\/div>$/i', '', trim($inner));
+        $inner = trim($inner);
+        // Remove empty <br> only lines
+        $textOnly = trim(strip_tags($inner));
+
+        // Sort images by left position
+        usort($leftImgs,  fn($a,$b) => $a['left'] <=> $b['left']);
+        usort($rightImgs, fn($a,$b) => $a['left'] <=> $b['left']);
+
+        $leftHtml  = implode(' ', array_column($leftImgs,  'img'));
+        $rightHtml = implode(' ', array_column($rightImgs, 'img'));
+
+        // Build a 3-column table: left-img | center text | right-img
+        $cols = '';
+        if ($leftHtml || $textOnly || $rightHtml) {
+            $leftCell  = $leftHtml  ? "<td style=\"padding:0 6px 0 0;vertical-align:middle;white-space:nowrap;width:1%;\">{$leftHtml}</td>"  : '';
+            $rightCell = $rightHtml ? "<td style=\"padding:0 0 0 6px;vertical-align:middle;white-space:nowrap;width:1%;text-align:right;\">{$rightHtml}</td>" : '';
+            $textCell  = "<td style=\"padding:0 4px;vertical-align:middle;font-size:8.5pt;\">" . ($inner ?: '&nbsp;') . "</td>";
+            $cols = $leftCell . $textCell . $rightCell;
+        }
+
+        return $cols
+            ? "<table style=\"width:100%;border-collapse:collapse;\"><tr>{$cols}</tr></table>"
+            : ($inner ?: '');
+    }
+
     private function renderHeaderHtml(string $header): string
     {
-        if (!$header) return '';
-        return '<div class="custom-header">' . $header . '</div>';
+        if (empty(trim($header))) return '';
+        $inner = $this->layoutHfHtml($header);
+        if (empty(trim($inner))) return '';
+        return '<div class="custom-header">' . $inner . '</div>';
     }
 
     private function renderFooterHtml(string $footer): string
     {
-        if (!$footer) return '';
-        return '<div class="custom-footer">' . $footer . '</div>';
+        if (empty(trim($footer))) return '';
+        $inner = $this->layoutHfHtml($footer);
+        if (empty(trim($inner))) return '';
+        return '<div class="custom-footer">' . $inner . '</div>';
     }
 
     private function addDocxSection($section, string $title, array $fields): void

@@ -77,7 +77,7 @@ const Step2 = () => {
     };
 
     const handlePreviewOpen = () => {
-        if (validateData()) setShowPreview(true);
+        setShowPreview(true);
     };
 
     const validateAndNext = () => {
@@ -481,16 +481,6 @@ const Step2 = () => {
                             <div className="flex-1 bg-slate-400 overflow-auto p-2 sm:p-8 flex justify-start lg:justify-center">
                                 <div className="origin-top-left scale-[0.35] min-[400px]:scale-[0.45] sm:scale-[0.6] md:scale-[0.8] lg:scale-100 transition-transform">
                                     <div className="bg-white w-[297mm] min-h-[210mm] p-[15mm] shadow-2xl font-serif text-black leading-tight">
-                                        <div className="flex items-center gap-4 mb-2">
-                                            <img src="/images/pup_logo.png" alt="PUP Logo" className="w-20 h-20 object-contain" />
-                                            <div className="text-left">
-                                                <p className="text-[10pt] italic">Republic of the Philippines</p>
-                                                <p className="font-bold text-[12pt]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                <p className="font-bold text-[11pt]">SANTA ROSA CAMPUS</p>
-                                                <p className="text-[10pt] italic">City of Santa Rosa, Laguna</p>
-                                            </div>
-                                        </div>
-
                                         <hr className="border-t-2 border-black mb-6" />
 
                                         <div className="flex w-full border border-black mb-6">
@@ -561,22 +551,6 @@ const Step2 = () => {
                                             </div>
                                         </div>
                                         <p className="text-[7pt] mt-2 italic">Legend: L-Learned, P-Practiced, O-Opportunity to Learn</p>
-                                        
-                                        {/* Bottom Labels  */}
-                                        <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
-                                            <div>
-                                                <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
-                                                <p>Direct Line: 0961-8023780</p>
-                                                <p>Website: https://pupsrc101.school.blog/ | Email: starosa@pup.edu.ph</p>
-                                            </div>
-                                            <div className="text-right flex flex-col items-end gap-1">
-                                                <div className="flex gap-2">
-                                                     <img src="/images/iso_logo.png" alt="ISO" className="h-8 opacity-70" />
-                                                     <img src="/images/ajb_logo.png" alt="AJB" className="h-8 opacity-70" />
-                                                </div>
-                                                <p className="font-bold text-black not-italic uppercase">THE COUNTRY'S 1st POLYTECHNIC U</p>
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
                             </div>

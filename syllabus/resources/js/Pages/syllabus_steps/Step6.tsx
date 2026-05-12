@@ -262,6 +262,7 @@ interface RichDocEditorProps {
     value: string;
     onChange: (val: string) => void;
     placeholder?: string;
+    onHeightChange?: (px: number) => void;
 }
 
 // ─── Body-level image resize/drag overlay ────────────────────────────────────
@@ -403,13 +404,20 @@ function attachImgOverlay(
     document.body.appendChild(overlay);
 }
 
-const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, placeholder }) => {
+const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, placeholder, onHeightChange }) => {
     const editorRef      = useRef<HTMLDivElement>(null);
     const fileInputRef   = useRef<HTMLInputElement>(null);
     const selectedImgRef = useRef<HTMLImageElement | null>(null);
     const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
     const [currentFont, setCurrentFont] = useState('Times New Roman, serif');
     const [currentSize, setCurrentSize] = useState('12');
+
+    // Report editor height after mount so the preview can match it exactly
+    useEffect(() => {
+        if (!editorRef.current || !onHeightChange) return;
+        const h = editorRef.current.offsetHeight;
+        if (h > 0) onHeightChange(h);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Persist the last known selection ─────────────────────────────────────
     const savedSelRef = useRef<Range | null>(null);
@@ -520,16 +528,9 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
         onChange(editorRef.current?.innerHTML || '');
     };
 
-    // ── Dynamically expand the editor to always contain all absolute images ──
+    // ── Editor height is fixed — this is a no-op kept for call-site compatibility ──
     const updateEditorMinHeight = useCallback(() => {
-        const el = editorRef.current;
-        if (!el) return;
-        let requiredHeight = 140; // base minimum
-        el.querySelectorAll<HTMLImageElement>('img[data-hf-img]').forEach(img => {
-            const bottom = img.offsetTop + img.offsetHeight + 16; // 16px padding below
-            if (bottom > requiredHeight) requiredHeight = bottom;
-        });
-        el.style.minHeight = requiredHeight + 'px';
+        // Height is locked via CSS; do nothing.
     }, []);
 
     // Sync innerHTML when value changes externally (initial load)
@@ -879,9 +880,8 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onImageFile} />
             </div>
 
-            {/* Content area — position:relative so images can be freely placed inside.
-                min-height is kept in sync with image positions so the editor always
-                expands to show the full image, never clipping it. */}
+            {/* Content area — fixed height; images are freely dragged inside.
+                Enter key is suppressed so the user cannot expand the box height. */}
             <div
                 ref={editorRef}
                 contentEditable
@@ -890,9 +890,15 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                     handleInput();
                     updateEditorMinHeight();
                 }}
+                onKeyDown={(e) => {
+                    // Block Enter so height stays fixed
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                    }
+                }}
                 data-placeholder={placeholder}
                 dir="ltr"
-                className="px-4 py-3 border border-slate-200 border-t-0 rounded-b-xl bg-white text-sm outline-none focus:ring-2 focus:ring-[#4B6333]/30 transition-all"
+                className="px-4 py-3 border border-slate-200 border-t-0 rounded-b-xl bg-white text-sm outline-none focus:ring-2 focus:ring-[#4B6333]/30 transition-all overflow-hidden"
                 style={{
                     fontFamily: 'inherit',
                     lineHeight: 1.6,
@@ -901,7 +907,9 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
                     textAlign: 'left',
                     unicodeBidi: 'plaintext',
                     whiteSpace: 'pre-wrap',
-                    minHeight: '140px',
+                    height: '110px',
+                    minHeight: '110px',
+                    maxHeight: '110px',
                 }}
             />
 
@@ -1014,6 +1022,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     const [footerContent, setFooterContent] = useState('');
     const [headerError, setHeaderError] = useState(false);
     const [footerError, setFooterError] = useState(false);
+    // Track the pixel height of each editor so the preview pages use the same height
+    const [headerEditorHeight, setHeaderEditorHeight] = useState(110);
+    const [footerEditorHeight, setFooterEditorHeight] = useState(110);
     
     const checklistOptions = [
         "Institutional and course headers verified",
@@ -1369,8 +1380,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     padding: 4px 0;
                     word-break: break-word;
                 }
-                .syllabus-custom-header { border-bottom: 1px solid #888; margin-bottom: 8px; }
-                .syllabus-custom-footer { border-top: 1px solid #888; margin-top: 8px; }
+                .syllabus-custom-header { border-bottom: 1px solid #888; margin-bottom: 6px; }
+                .syllabus-custom-footer { border-top: 1px solid #888; margin-top: 6px; }
                 /* Links in preview */
                 .syllabus-custom-header a,
                 .syllabus-custom-footer a {
@@ -1562,6 +1573,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                             <RichDocEditor
                                 label="Header Content"
                                 value={headerContent}
+                                onHeightChange={setHeaderEditorHeight}
                                 onChange={(val) => {
                                     setHeaderContent(val);
                                 }}
@@ -1571,6 +1583,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                             <RichDocEditor
                                 label="Footer Content"
                                 value={footerContent}
+                                onHeightChange={setFooterEditorHeight}
                                 onChange={(val) => {
                                     setFooterContent(val);
                                 }}
@@ -1641,41 +1654,26 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     // ─── Shared sub-components ───────────────────────────────────────
 
                     // ─── Custom Header/Footer from editor — these are the ONLY header/footer on each page ──
-                    // AutoHeightHF: after mount, measures any absolutely-positioned images and
-                    // expands the container's minHeight so nothing gets clipped.
-                    const AutoHeightHF: React.FC<{ html: string; className: string }> = ({ html, className }) => {
+                    // AutoHeightHF: renders header/footer with the same pixel height as the editor,
+                    // so every page has a consistent, uniform header/footer band.
+                    const AutoHeightHF: React.FC<{ html: string; className: string; editorPx: number }> = ({ html, className, editorPx }) => {
                         const ref = useRef<HTMLDivElement>(null);
-                        useEffect(() => {
-                            const el = ref.current;
-                            if (!el) return;
-                            const measure = () => {
-                                let needed = el.scrollHeight || 0;
-                                el.querySelectorAll<HTMLImageElement>('img[data-hf-img]').forEach(img => {
-                                    const bottom = img.offsetTop + img.offsetHeight + 8;
-                                    if (bottom > needed) needed = bottom;
-                                });
-                                if (needed > 0) el.style.minHeight = needed + 'px';
-                            };
-                            measure();
-                            const imgs = Array.from(el.querySelectorAll<HTMLImageElement>('img[data-hf-img]'));
-                            imgs.forEach(img => { if (!img.complete) img.addEventListener('load', measure, { once: true }); });
-                        }, [html]);
                         return (
                             <div
                                 ref={ref}
                                 className={className}
-                                style={{ position: 'relative' }}
+                                style={{ position: 'relative', height: `${editorPx}px`, minHeight: `${editorPx}px`, overflow: 'hidden' }}
                                 dangerouslySetInnerHTML={{ __html: html || '' }}
                             />
                         );
                     };
 
                     const CustomPageHeader = () => (
-                        <AutoHeightHF html={headerContent} className="syllabus-custom-header" />
+                        <AutoHeightHF html={headerContent} className="syllabus-custom-header" editorPx={headerEditorHeight} />
                     );
 
                     const CustomPageFooter = () => (
-                        <AutoHeightHF html={footerContent} className="syllabus-custom-footer" />
+                        <AutoHeightHF html={footerContent} className="syllabus-custom-footer" editorPx={footerEditorHeight} />
                     );
 
                     const pageBase = "preview-container shadow-2xl font-serif text-black relative bg-white";
@@ -1728,7 +1726,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     min-width: 800px;
                                     margin: 0 auto;
                                     background: white;
-                                    padding: 1.5rem;
+                                    padding: 1rem;
                                     border-top: 3px solid #800000;
                                     border-bottom: 3px solid #800000;
                                 }
@@ -1772,27 +1770,27 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 .syllabus-custom-header {
                                     font-size: 11px;
                                     line-height: 1.5;
-                                    margin-bottom: 10px;
+                                    margin-bottom: 8px;
                                     word-break: break-word;
                                     position: relative;
                                     display: block;
-                                    min-height: 4px;
+                                    overflow: hidden;
                                 }
                                 .syllabus-custom-header:not(:empty) {
-                                    padding-bottom: 8px;
+                                    padding-bottom: 6px;
                                     border-bottom: 1.5px solid #aaa;
                                 }
                                 .syllabus-custom-footer {
                                     font-size: 11px;
                                     line-height: 1.5;
-                                    margin-top: 10px;
+                                    margin-top: 8px;
                                     word-break: break-word;
                                     position: relative;
                                     display: block;
-                                    min-height: 4px;
+                                    overflow: hidden;
                                 }
                                 .syllabus-custom-footer:not(:empty) {
-                                    padding-top: 8px;
+                                    padding-top: 6px;
                                     border-top: 1.5px solid #aaa;
                                 }
                                 /* Images in custom header/footer: position:absolute is respected
@@ -1801,6 +1799,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 .syllabus-custom-footer img[data-hf-img] {
                                     position: absolute;
                                     border-radius: 3px;
+                                    border: none !important;
+                                    outline: none !important;
+                                    box-shadow: none !important;
                                     max-width: none;
                                     border: none !important;
                                     outline: none !important;
@@ -1943,7 +1944,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         {/* PLO → ILO table */}
                                         <div className="flex w-full border border-black mb-0">
                                             <div className="w-[5%] border-r border-black flex items-center justify-center bg-white p-2 text-center">
-                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-lr] whitespace-nowrap">PROGRAM LEARNING OUTCOMES</span>
+                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-rl] whitespace-nowrap">PROGRAM LEARNING OUTCOMES</span>
                                             </div>
                                             <div className="flex-1">
                                                 <table className="w-full border-collapse text-[8pt]">
@@ -1978,7 +1979,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         {/* CLO → PLO table */}
                                         <div className="flex w-full border border-black">
                                             <div className="w-[5%] border-r border-black flex items-center justify-center bg-white p-2 text-center">
-                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-lr] whitespace-nowrap">COURSE LEARNING OUTCOMES</span>
+                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-rl] whitespace-nowrap">COURSE LEARNING OUTCOMES</span>
                                             </div>
                                             <div className="flex-1">
                                                 <table className="w-full border-collapse text-[8pt]">
@@ -2027,7 +2028,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         />
                                         <div className={pageBase}>
                                             <CustomPageHeader />
-                                            <div className="header-yellow mb-4">
+                                            <div className="header-yellow mb-0">
                                                 Bachelor of Science in Information Technology <br/>
                                                 Outcomes-Based Course Syllabus
                                             </div>

@@ -6,6 +6,14 @@ use App\Http\Controllers\Syllabi_Controllers\SyllabusController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
+Route::get('/test-gd', function () {
+    return extension_loaded('gd') ? 'GD Enabled' : 'GD Missing';
+});
+
+Route::get('/phpinfo-test', function () {
+    phpinfo();
+});
+
 /* ---------------- AUTHENTICATION ROUTES ---------------- */
 Route::get('/', function () {
     return redirect()->route('login');

@@ -26,6 +26,16 @@ const Step1 = () => {
     const [alertMessage, setAlertMessage] = useState<string | null>(null);
     const [alertType, setAlertType] = useState<'error' | 'success'>('error');
 
+    const Font = ReactQuill.Quill.import('formats/font') as any;
+
+    Font.whitelist = [
+        'sans-serif',
+        'serif',
+        'monospace'
+    ];
+
+    ReactQuill.Quill.register(Font, true);
+
     const modules = {
         toolbar: [
             [{ 'font': [] }],
@@ -95,23 +105,6 @@ const Step1 = () => {
     }, [data.course_code, data.course_title, data.course_description]);
 
     const handlePreviewOpen = () => {
-    const validationErrors = validateStep1(data);
-
-        if (Object.keys(validationErrors).length > 0) {
-            setLocalErrors(validationErrors);
-
-            setAlertMessage("Please complete all required fields before preview.");
-            setAlertType("error");
-
-            setTimeout(() => {
-                setAlertMessage(null);
-                setLocalErrors({});
-            }, 3000);
-
-            return;
-        }
-
-        // If valid → open preview
         setShowPreview(true);
     };
 
@@ -178,9 +171,36 @@ const Step1 = () => {
             <style dangerouslySetInnerHTML={{ __html: `
                 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
                 .ql-toolbar.ql-snow { border: none !important; background-color: #F8FAFC !important; border-bottom: 1px solid #E2E8F0 !important; }
-                .ql-container.ql-snow { border: none !important; height: 180px; font-family: 'Poppins', sans-serif !important; }
+                .ql-container.ql-snow { 
+                    border: none !important; 
+                    height: 180px; 
+                    font-family: 'Poppins', sans-serif !important; 
+                }
+
+                .ql-font-serif {
+                    font-family: Georgia, Times New Roman, serif !important;
+                }
+
+                .ql-font-monospace {
+                    font-family: monospace !important;
+                }
+
+                .ql-font-sans-serif {
+                    font-family: Arial, Helvetica, sans-serif !important;
+                }
+                
                 .scrollbar-hide::-webkit-scrollbar { display: none; }
                 
+                @page {
+                    margin: 0;
+                }
+
+                @media print {
+                    body {
+                        margin: 0;
+                    }
+                }
+
                 .preview-container {
                     width: 100%;
                     max-width: 297mm; 
@@ -226,6 +246,110 @@ const Step1 = () => {
                         transform-origin: top left;
                         width: 250%; /* Compensation for scale */
                     }
+                }
+
+                /* QUILL CONTENT STYLING FOR PDF PREVIEW */
+
+                .ql-editor {
+                    font-size: 12px;
+                    line-height: 1.7;
+                    color: black;
+                }
+
+                .ql-editor p {
+                    margin-bottom: 8px;
+                }
+
+                .ql-editor ul {
+                    list-style-type: disc;
+                    padding-left: 1.5rem;
+                    margin-bottom: 10px;
+                }
+
+                .ql-editor ol {
+                    list-style-type: decimal;
+                    padding-left: 1.5rem;
+                    margin-bottom: 10px;
+                }
+
+                .ql-editor li {
+                    margin-bottom: 4px;
+                }
+
+                .ql-editor .ql-align-center {
+                    text-align: center;
+                }
+
+                .ql-editor .ql-align-right {
+                    text-align: right;
+                }
+
+                .ql-editor .ql-align-justify {
+                    text-align: justify;
+                }
+
+                .ql-editor .ql-align-left {
+                    text-align: left;
+                }
+
+                /* FONT SUPPORT */
+
+                .ql-font-serif {
+                    font-family: Georgia, Times New Roman, serif;
+                }
+
+                .ql-font-monospace {
+                    font-family: monospace;
+                }
+
+                /* FONT DROPDOWN LABELS */
+
+                .ql-snow .ql-picker.ql-font .ql-picker-label::before,
+                .ql-snow .ql-picker.ql-font .ql-picker-item::before {
+                    content: attr(data-value);
+                }
+
+                .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="sans-serif"]::before,
+                .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="sans-serif"]::before {
+                    content: "Sans Serif";
+                }
+
+                .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="serif"]::before,
+                .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="serif"]::before {
+                    content: "Serif";
+                }
+
+                .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="monospace"]::before,
+                .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="monospace"]::before {
+                    content: "Monospace";
+                }
+
+                /* INDENTATION */
+
+                .ql-indent-1 {
+                    padding-left: 3em;
+                }
+
+                .ql-indent-2 {
+                    padding-left: 6em;
+                }
+
+                .ql-indent-3 {
+                    padding-left: 9em;
+                }
+
+                /* TEXT FORMATTING */
+
+                .ql-editor strong {
+                    font-weight: bold;
+                }
+
+                .ql-editor em {
+                    font-style: italic;
+                }
+
+                .ql-editor u {
+                    text-decoration: underline;
                 }
             `}} />
             
@@ -394,18 +518,6 @@ const Step1 = () => {
 
                             <div className="flex-1 overflow-auto p-4 md:p-12 bg-slate-400 scrollbar-hide">
                                 <div className="preview-container shadow-2xl font-serif text-black relative">
-                                    
-                                    {/* PUP Header Section  */}
-                                    <div className="flex items-start justify-start gap-4 mb-6 border-b-2 border-black pb-4">
-                                        <img src="/images/pup_logo.png" alt="PUP Logo" className="w-20 h-20 object-contain" />
-                                        <div className="text-left">
-                                            <p className="text-[10px] uppercase">Republic of the Philippines</p>
-                                            <p className="font-bold text-[16px]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                            <p className="font-bold text-[14px]">SANTA ROSA CAMPUS</p>
-                                            <p className="italic text-[10px]">City of Santa Rosa, Laguna</p>
-                                        </div>
-                                    </div>
-
                                     {/* Title Section */}
                                     <div className="header-yellow mb-0">
                                         Bachelor of Science in Information Technology <br/>
@@ -427,7 +539,7 @@ const Step1 = () => {
                                                 <td colSpan={6} className="value-cell text-justify leading-relaxed py-4">
                                                     <span className="font-bold uppercase block mb-1">Course Description</span>
                                                     <div
-                                                        className="italic wrap-break-word"
+                                                        className="ql-editor wrap-break-word"
                                                         dangerouslySetInnerHTML={{
                                                             __html: DOMPurify.sanitize(
                                                                 data.course_description || 'No description provided.'
@@ -484,22 +596,6 @@ const Step1 = () => {
                                             </tr>
                                         </tbody>
                                     </table>
-                                    
-                                    {/* Bottom Labels  */}
-                                  <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
-                                        <div>
-                                            <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
-                                            <p>Direct Line: 0961-8023780</p>
-                                            <p>Website: https://pupsrc101.school.blog/ | Email: starosa@pup.edu.ph</p>
-                                        </div>
-                                        <div className="text-right flex flex-col items-end gap-1">
-                                            <div className="flex gap-2">
-                                                <img src="/images/iso_logo.png" alt="ISO" className="h-8 opacity-70" />
-                                                <img src="/images/ajb_logo.png" alt="AJB" className="h-8 opacity-70" />
-                                            </div>
-                                             <p className="font-bold text-black not-italic uppercase">THE COUNTRY'S 1st POLYTECHNIC U</p>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </motion.div>

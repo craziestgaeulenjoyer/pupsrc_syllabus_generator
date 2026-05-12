@@ -1011,16 +1011,6 @@ const Step3 = () => {
                                 {paginatedData.map((pageRows, pageIdx) => (
                                     <div key={pageIdx} className="bg-white shadow-2xl origin-top scale-[0.35] sm:scale-[0.5] md:scale-[0.7] lg:scale-100 transition-transform w-[297mm] min-h-[210mm] p-[15mm] font-serif text-black flex flex-col justify-between relative shrink-0">
                                         <div>
-                                            {/* Header */}
-                                            <div className="flex items-center gap-4 mb-2">
-                                                <img src="/images/pup_logo.png" alt="PUP Logo" className="w-20 h-20 object-contain" />
-                                                <div className="text-left">
-                                                    <p className="text-[10pt]">Republic of the Philippines</p>
-                                                    <p className="font-bold text-[12pt]">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                    <p className="font-bold text-[11pt]">SANTA ROSA CAMPUS</p>
-                                                    <p className="text-[10pt] italic">City of Santa Rosa, Laguna</p>
-                                                </div>
-                                            </div>
                                             <hr className="border-t-2 border-black mb-4" />
                                             {pageIdx === 0 && <h2 className="font-bold text-[11pt] mb-4 uppercase text-center w-full">OUTCOMES-BASED TEACHING AND LEARNING PLAN</h2>}
 
@@ -1138,22 +1128,6 @@ const Step3 = () => {
                                                 </table>
                                             </div>
                                         )}
-
-                                        {/* Bottom Labels  */}
-                                        <div className="mt-6 flex justify-between items-start text-[8pt] text-slate-500 italic">
-                                            <div>
-                                                    <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
-                                                    <p>Direct Line: 0961-8023780</p>
-                                                    <p>Website: https://pupsrc101.school.blog/ | Email: starosa@pup.edu.ph</p>
-                                            </div>
-                                            <div className="text-right flex flex-col items-end gap-1">
-                                                <div className="flex gap-2">
-                                                    <img src="/images/iso_logo.png" alt="ISO" className="h-8 opacity-70" />
-                                                    <img src="/images/ajb_logo.png" alt="AJB" className="h-8 opacity-70" />
-                                                </div>
-                                                    <p className="font-bold text-black not-italic uppercase">THE COUNTRY'S 1st POLYTECHNIC U</p>
-                                                </div>
-                                        </div>
                                     </div>
                                 ))}
                             </div>

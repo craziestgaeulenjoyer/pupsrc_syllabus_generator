@@ -485,16 +485,6 @@ const Step4 = () => {
                                     >
                                         
                                         <div className="w-full">
-                                            {/* OFFICIAL PUP HEADER */}
-                                            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-4 mb-2 text-center sm:text-left">
-                                                <img src="/images/pup_logo.png" alt="PUP Logo" className="w-12 h-12 md:w-16 md:h-16 object-contain" />
-                                                <div className="flex-1">
-                                                    <p className="text-[7pt] md:text-[9pt] leading-tight uppercase">Republic of the Philippines</p>
-                                                    <p className="font-bold text-[9pt] md:text-[11pt] leading-tight">POLYTECHNIC UNIVERSITY OF THE PHILIPPINES</p>
-                                                    <p className="font-bold text-[8pt] md:text-[10pt] leading-tight uppercase">SANTA ROSA CAMPUS</p>
-                                                    <p className="text-[7pt] md:text-[9pt] italic">City of Santa Rosa, Laguna</p>
-                                                </div>
-                                            </div>
                                             <hr className="border-t-2 border-black mb-4" />
 
                                             {pageIdx === 0 ? (
@@ -587,19 +577,6 @@ const Step4 = () => {
                                                     </div>
                                                 </div>
                                             )}
-                                        </div>
-
-                                        {/* REUSABLE FOOTER */}
-                                        <div className="mt-6 md:mt-auto border-t border-slate-300 pt-4 flex flex-col sm:flex-row justify-between items-center sm:items-end gap-3 text-[6pt] md:text-[7pt]">
-                                            <div className="space-y-0.5 text-center sm:text-left italic text-slate-500">
-                                                <p>PUP LCA Boulevard, Brgy. Tagapo, City of Santa Rosa, Laguna</p>
-                                                <p>Direct Line: 0961-8023780 | Email: starosa@pup.edu.ph</p>
-                                                <p className="font-bold text-black not-italic uppercase mt-1">THE COUNTRY'S 1st POLYTECHNIC U</p>
-                                            </div>
-                                            <div className="flex gap-4 opacity-70 shrink-0">
-                                                <img src="/images/iso_logo.png" alt="ISO" className="h-6 md:h-8" />
-                                                <img src="/images/ajb_logo.png" alt="AJB" className="h-6 md:h-8" />
-                                            </div>
                                         </div>
                                     </div>
                                 ))}
