@@ -1018,6 +1018,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     const [finalSyllabusData, setFinalSyllabusData] = useState<any>({});
     const [sessionId, setSessionId] = useState<string | null>(null); 
 
+    const [courseName, setCourseName] = useState('BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
     const [headerContent, setHeaderContent] = useState('');
     const [footerContent, setFooterContent] = useState('');
     const [headerError, setHeaderError] = useState(false);
@@ -1064,12 +1065,14 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         const curFooter   = sessionStorage.getItem(`syllabus_footer_${id}`) ?? footerRef.current ?? '';
         const curFormat   = exportFormatRef.current;
         const curFileName = fileNameRef.current;
+        const curCourseName = courseNameRef.current;
 
         // Also persist step6 so DB gets the latest
         if (hasLoadedRef.current) {
             sessionStorage.setItem(`syllabus_step6_${id}`, JSON.stringify({
                 exportFormat: curFormat,
                 fileName:     curFileName,
+                courseName:   curCourseName,
                 header:       curHeader,
                 footer:       curFooter,
             }));
@@ -1078,6 +1081,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         const step6Data = {
             exportFormat: curFormat,
             fileName:     curFileName,
+            courseName:   curCourseName,
             header:       curHeader,
             footer:       curFooter,
         };
@@ -1132,6 +1136,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 // Step 6 — header/footer + export options
                 format:     curFormat,
                 customName: curFileName,
+                courseName: curCourseName,
                 header:     curHeader,
                 footer:     curFooter,
             }
@@ -1139,6 +1144,19 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     };
 
     const handleGenerateSyllabus = async () => {
+        // Validate header and footer are not empty
+        const headerText = headerContent.replace(/<[^>]*>/g, '').trim();
+        const footerText = footerContent.replace(/<[^>]*>/g, '').trim();
+
+        if (!headerText) {
+            alert("Please fill in the Header content before generating the syllabus.");
+            return;
+        }
+        if (!footerText) {
+            alert("Please fill in the Footer content before generating the syllabus.");
+            return;
+        }
+
         if (checkedItems.length < checklistOptions.length) {
             alert("Please verify all items in the checklist before generating.");
             return;
@@ -1271,6 +1289,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             const saved = JSON.parse(sessionStorage.getItem(`syllabus_step6_${sessionId}`) || '{}');
             if (saved.exportFormat) setExportFormat(saved.exportFormat);
             if (saved.fileName)     setFileName(saved.fileName);
+            if (saved.courseName)   setCourseName(saved.courseName);
         } catch {}
 
         // Always apply the header/footer (dedicated keys are source of truth)
@@ -1290,6 +1309,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     const footerRef       = useRef(footerContent);
     const exportFormatRef = useRef(exportFormat);
     const fileNameRef     = useRef(fileName);
+    const courseNameRef   = useRef(courseName);
     const finalDataRef    = useRef(finalSyllabusData);
 
     useEffect(() => { sessionIdRef.current    = sessionId; },         [sessionId]);
@@ -1297,6 +1317,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     useEffect(() => { footerRef.current       = footerContent; },     [footerContent]);
     useEffect(() => { exportFormatRef.current = exportFormat; },      [exportFormat]);
     useEffect(() => { fileNameRef.current     = fileName; },          [fileName]);
+    useEffect(() => { courseNameRef.current   = courseName; },        [courseName]);
     useEffect(() => { finalDataRef.current    = finalSyllabusData; }, [finalSyllabusData]);
 
     // Stable persist — skipped until hasLoadedRef is true
@@ -1310,6 +1331,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         sessionStorage.setItem(`syllabus_step6_${id}`, JSON.stringify({
             exportFormat: exportFormatRef.current,
             fileName:     fileNameRef.current,
+            courseName:   courseNameRef.current,
             header,
             footer,
         }));
@@ -1331,7 +1353,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     useEffect(() => {
         if (!sessionId) return;
         persistStep6();
-    }, [exportFormat, fileName, sessionId]);
+    }, [exportFormat, fileName, courseName, sessionId]);
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans selection:bg-[#800000] selection:text-white">
@@ -1569,25 +1591,50 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     </div>
 
                     <div className="p-5 md:p-8 flex flex-col gap-6 md:gap-8">
+                        {/* Course Name for Banner */}
+                        <div className="space-y-2">
+                            <label className="block text-xs font-black text-slate-700 uppercase tracking-widest">
+                                Course / Program Name <span className="text-red-500">*</span>
+                                <span className="ml-2 text-slate-400 font-normal normal-case tracking-normal text-[11px]">Used in the syllabus banner: <span className="font-semibold text-slate-600">[Course Name] OUTCOMES-BASED COURSE SYLLABUS</span></span>
+                            </label>
+                            <input
+                                type="text"
+                                value={courseName}
+                                onChange={e => setCourseName(e.target.value)}
+                                placeholder="e.g. BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY"
+                                className="w-full border-2 border-slate-200 focus:border-[#4B6333] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none transition-all bg-slate-50 focus:bg-white"
+                            />
+                            <p className="text-[11px] text-slate-400 font-medium">This appears as the bold banner at the top of every syllabus page.</p>
+                        </div>
                         <div className="space-y-2">
                             <RichDocEditor
-                                label="Header Content"
+                                label="Header Content *"
                                 value={headerContent}
                                 onHeightChange={setHeaderEditorHeight}
                                 onChange={(val) => {
                                     setHeaderContent(val);
                                 }}
                             />
+                            {!headerContent.replace(/<[^>]*>/g, '').trim() && (
+                                <p className="text-xs text-red-500 font-semibold flex items-center gap-1">
+                                    <span>⚠</span> Header is required before you can generate the syllabus.
+                                </p>
+                            )}
                         </div>
                         <div className="space-y-2">
                             <RichDocEditor
-                                label="Footer Content"
+                                label="Footer Content *"
                                 value={footerContent}
                                 onHeightChange={setFooterEditorHeight}
                                 onChange={(val) => {
                                     setFooterContent(val);
                                 }}
                             />
+                            {!footerContent.replace(/<[^>]*>/g, '').trim() && (
+                                <p className="text-xs text-red-500 font-semibold flex items-center gap-1">
+                                    <span>⚠</span> Footer is required before you can generate the syllabus.
+                                </p>
+                            )}
                         </div>
                     </div>
                 </motion.div>
@@ -1722,8 +1769,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                             <style dangerouslySetInnerHTML={{ __html: `
                                 .preview-container {
                                     width: 100%;
-                                    max-width: 297mm;
-                                    min-width: 800px;
+                                    max-width: 355.6mm;
+                                    min-width: 860px;
                                     margin: 0 auto;
                                     background: white;
                                     padding: 1rem;
@@ -1847,7 +1894,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <div className={pageBase}>
                                         <CustomPageHeader />
                                         <div className="header-yellow mb-0">
-                                            Bachelor of Science in Information Technology <br/>
+                                            {courseName || 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY'} <br/>
                                             Outcomes-Based Course Syllabus
                                         </div>
                                         <table className="syllabus-table" style={{tableLayout:'fixed'}}>
@@ -1924,6 +1971,36 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                         </ol>
                                                     </td>
                                                 </tr>
+                                                <tr>
+                                                    <td className="label-cell">COLLEGE / CAMPUS GOALS</td>
+                                                    <td className="value-cell text-justify text-[7.5pt]">
+                                                        <ol className="list-decimal ml-5 space-y-0.5">
+                                                            <li>Innovation and continuous improvement; to build a diverse, transparent, inclusive workforce; and reduce the organization's environmental impact.</li>
+                                                            <li>To offer curricula that are relevant and responsive to the changing needs of the industry and society; promote critical thinking, a sense of adventure, and an openness to adapt challenges of their future workplace.</li>
+                                                            <li>To increase students' attention and focus, promote a meaningful learning experience, encourage higher levels of student performance, motivate students to practice higher-order thinking skills.</li>
+                                                            <li>To prepare holistic approaches to inculcate appropriate values necessary to build a humane, disciplined, nationalist, and independent society.</li>
+                                                            <li>To build a culture of trust, deliver honest feedback, foster open communication, delegate responsibilities and tasks, and support growth opportunities to empower faculty members and employees.</li>
+                                                        </ol>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="label-cell">PROGRAM GOALS</td>
+                                                    <td className="value-cell text-justify text-[7.5pt]">
+                                                        The Bachelor of Science in Information Technology (BSIT) program focuses on the study of computer utilization and software to plan, install, customize, operate, manage, administer and maintain information technology infrastructure. The program prepares students to become IT professionals with primary competencies in systems analysis and design, applications development, database administration, network administration, and systems implementation and maintenance.
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="label-cell">PROGRAM OBJECTIVES</td>
+                                                    <td className="value-cell text-[7.5pt]">
+                                                        <ol className="list-decimal ml-5 space-y-0.5">
+                                                            <li>To introduce students to current technologies and tools while learning new methodologies that will lead to the development of better information systems.</li>
+                                                            <li>To enable students to understand the different components of the information technology field, including hardware, software, communication, networking, research, peopleware and management skills.</li>
+                                                            <li>To demonstrate awareness of how to methodically and practically approach a variety of technological and managerial issues to ultimately improve business strategies.</li>
+                                                            <li>To inculcate to students the essential virtues and attitudes, as well as develop necessary knowledge and competency levels required of an IT professional.</li>
+                                                            <li>To train students to systematically analyze and evaluate organizational systems and processes in order to recommend software solutions that properly address the organization's needs and goals.</li>
+                                                        </ol>
+                                                    </td>
+                                                </tr>
                                             </tbody>
                                         </table>
                                         <CustomPageFooter />
@@ -1936,10 +2013,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider pageNum={nextPage()} step={2} title="PLO / CLO Mapping Matrix" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
-                                        <div className="header-yellow mb-4">
-                                            Bachelor of Science in Information Technology <br/>
-                                            Outcomes-Based Course Syllabus
-                                        </div>
 
                                         {/* PLO → ILO table */}
                                         <div className="flex w-full border border-black mb-0">
@@ -2028,10 +2101,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         />
                                         <div className={pageBase}>
                                             <CustomPageHeader />
-                                            <div className="header-yellow mb-0">
-                                                Bachelor of Science in Information Technology <br/>
-                                                Outcomes-Based Course Syllabus
-                                            </div>
                                             <div className="w-full border border-black">
                                                 <table className="w-full border-collapse text-[8pt]" style={{tableLayout:'fixed'}}>
                                                     <colgroup>
@@ -2136,10 +2205,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider pageNum={nextPage()} step={4} stepNum="Page 1" title="Classroom Policies" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
-                                        <div className="header-yellow mb-4">
-                                            Bachelor of Science in Information Technology <br/>
-                                            Outcomes-Based Course Syllabus
-                                        </div>
                                         <div className="w-full bg-slate-100 border border-black p-1 text-center font-bold text-[10pt] uppercase mb-0">
                                             CLASSROOM POLICIES (to be filled out by the assigned faculty)
                                         </div>
@@ -2194,10 +2259,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider pageNum={nextPage()} step={4} stepNum="Page 2" title="Requirements & Grading" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
-                                        <div className="header-yellow mb-4">
-                                            Bachelor of Science in Information Technology <br/>
-                                            Outcomes-Based Course Syllabus
-                                        </div>
                                         <div className="w-full bg-slate-100 border border-black p-1 text-center font-bold text-[10pt] uppercase mb-4">
                                             COURSE REQUIREMENTS & EVALUATION
                                         </div>
@@ -2379,7 +2440,21 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
                         <button
                             onClick={handleGenerateSyllabus}
-                            disabled={checkedItems.length < checklistOptions.length || isGenerating}
+                            disabled={
+                                checkedItems.length < checklistOptions.length ||
+                                isGenerating ||
+                                !headerContent.replace(/<[^>]*>/g, '').trim() ||
+                                !footerContent.replace(/<[^>]*>/g, '').trim()
+                            }
+                            title={
+                                !headerContent.replace(/<[^>]*>/g, '').trim()
+                                    ? 'Header content is required'
+                                    : !footerContent.replace(/<[^>]*>/g, '').trim()
+                                    ? 'Footer content is required'
+                                    : checkedItems.length < checklistOptions.length
+                                    ? 'Please check all checklist items'
+                                    : ''
+                            }
                             className="flex-[2] sm:flex-none cursor-pointer flex items-center justify-center gap-1.5 px-4 sm:px-8 py-3 rounded-xl font-bold text-xs md:text-sm shadow-md bg-[#800000] text-white hover:bg-[#600000] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {isGenerating ? (

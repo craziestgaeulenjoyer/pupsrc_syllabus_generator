@@ -3,6 +3,7 @@
 use App\Http\Controllers\Authentication_Controllers\AuthController;
 use App\Http\Controllers\Authentication_Controllers\ForgotPasswordController;
 use App\Http\Controllers\Syllabi_Controllers\SyllabusController;
+use App\Http\Controllers\Dashboard_Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -61,9 +62,7 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 /* ---------------- PROTECTED ROUTES ---------------- */
 
 Route::middleware(['auth'])->group(function () {
-    Route::get('/dashboard', function () {
-        return Inertia::render('dashboard_sections/Dashboard');
-    })->name('dashboard');
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     /* ---------------- SYLLABUS ROUTES ---------------- */
 

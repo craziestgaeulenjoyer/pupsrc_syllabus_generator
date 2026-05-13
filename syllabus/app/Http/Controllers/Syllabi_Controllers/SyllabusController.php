@@ -45,6 +45,7 @@ class SyllabusController extends Controller
         // Export options
         $exportFormat = $step6['exportFormat'] ?? 'pdf';
         $customName   = trim($step6['fileName'] ?? '');
+        $courseName   = trim($step6['courseName'] ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
         $header       = $request->header ?? ($step6['header'] ?? '');
         $footer       = $request->footer ?? ($step6['footer'] ?? '');
 
@@ -61,15 +62,16 @@ class SyllabusController extends Controller
         $syllabus = Syllabus::updateOrCreate(
             ['session_id' => $sessionId, 'professor_id' => $professorId],
             [
-                'course_code'  => $courseCode,
-                'course_title' => $courseTitle,
-                'step1'        => $step1,
-                'step2'        => $step2,
-                'step3'        => $step3,
-                'step4'        => $step4,
-                'step5'        => $step5,
-                'step6'        => $step6,
-                'final_data'   => $finalData,
+                'course_code'        => $courseCode,
+                'course_title'       => $courseTitle,
+                'course_name_header' => $courseName,
+                'step1'              => $step1,
+                'step2'              => $step2,
+                'step3'              => $step3,
+                'step4'              => $step4,
+                'step5'              => $step5,
+                'step6'              => $step6,
+                'final_data'         => $finalData,
             ]
         );
 
@@ -83,20 +85,37 @@ class SyllabusController extends Controller
 
         // Auto-save only — frontend passes download=false for checklist saves
         if ($request->input('download') === false || $request->input('download') === 'false') {
-            return response()->json(['message' => 'Saved', 'data' => $syllabus]);
+            return response()->json(['message' => 'Saved', 'id' => $syllabus->id, 'data' => $syllabus]);
         }
 
-        return $exportFormat === 'docx'
-            ? $this->streamDocx($baseName, $courseCode, $courseTitle, $step1, $step2, $step3, $step4, $step5, $header, $footer)
-            : $this->streamPdf ($baseName, $courseCode, $courseTitle, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+        // Stream the file — DB is already saved above regardless of what happens here
+        try {
+            return $exportFormat === 'docx'
+                ? $this->streamDocx($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer)
+                : $this->streamPdf ($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+        } catch (\Throwable $e) {
+            Log::error('Syllabus export failed', [
+                'syllabus_id'  => $syllabus->id,
+                'format'       => $exportFormat,
+                'error'        => $e->getMessage(),
+                'trace'        => $e->getTraceAsString(),
+            ]);
+            // The syllabus IS saved in the DB — only the file generation failed.
+            return response()->json([
+                'message'      => 'Syllabus saved successfully, but file export failed.',
+                'saved'        => true,
+                'id'           => $syllabus->id,
+                'export_error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
-    private function streamPdf(string $baseName, string $courseCode, string $courseTitle,
+    private function streamPdf(string $baseName, string $courseCode, string $courseTitle, string $courseName,
         array $step1, array $step2, array $step3, array $step4, array $step5,
         string $header, string $footer)
     {
-        $html = $this->buildHtml($courseCode, $courseTitle, $step1, $step2, $step3, $step4, $step5, $header, $footer);
-        $pdf  = Pdf::loadHTML($html)->setPaper('a4', 'landscape');
+        $html = $this->buildHtml($courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+        $pdf  = Pdf::loadHTML($html)->setPaper([0, 0, 612, 1008], 'landscape'); // legal: 8.5x14in in points
         return $pdf->download("{$baseName}.pdf");
     }
 
@@ -255,6 +274,7 @@ class SyllabusController extends Controller
         string $baseName,
         string $courseCode,
         string $courseTitle,
+        string $courseName,
         array $step1,
         array $step2,
         array $step3,
@@ -272,10 +292,54 @@ class SyllabusController extends Controller
         $description = $t($s($step1['course_description'] ?? ''));
         $preReq      = $s($step1['pre_requisites']     ?? 'None');
         $coReq       = $s($step1['co_requisites']      ?? 'None');
-        $vision      = $t($s($step1['vision']          ?? ''));
-        $mission     = $t($s($step1['mission']         ?? ''));
-        $quality     = $t($s($step1['quality_statement_policy'] ?? ''));
-        $ilos        = $step1['ilos']                  ?? [];
+
+        // Use step1 dynamic values with PUP static fallbacks (mirrors PDF hardcoded text)
+        $vision  = $t($s($step1['vision']  ?? '')) ?: 'PUP: The National Polytechnic University (PUP: Pambansang Politeknikong Unibersidad)';
+        $mission = $t($s($step1['mission'] ?? '')) ?: 'Ensuring inclusive and equitable quality education and promoting lifelong learning opportunities through a re-engineered polytechnic university by committing to: provide democratized access to educational opportunities for the holistic development of individuals with global perspective; offer industry-oriented curricula that produce highly skilled professionals; embed a culture of research and innovation.';
+        $quality = $t($s($step1['quality_statement_policy'] ?? '')) ?: 'The Polytechnic University of the Philippines commits to provide inclusive and equitable quality education and promote lifelong learning opportunities. Toward this end, we, the members of the PUP Community, will vigorously and steadfastly endeavor to continuously improve the standard of university services.';
+        $ilos    = $step1['ilos'] ?? [];
+
+        // College/Campus goals and Program goals/objectives (from step1 or static PUP defaults)
+        $collegeGoals = $t($s($step1['college_goals'] ?? $step1['campus_goals'] ?? ''));
+        $programGoals = $t($s($step1['program_goals'] ?? ''));
+        $programObjList = $step1['program_objectives'] ?? [];
+
+        // ── Static PUP defaults (from COMP 001 template) ─────────────────────
+        $iloFallback = [
+            ['bold' => 'Critical and Creative Thinking',                    'text' => 'Graduates use their rational and reflective thinking as well as innovative abilities to life situations in order to push boundaries, realize possibilities, and deepen their interdisciplinary, multidisciplinary, and/or transdisciplinary understanding of the world.'],
+            ['bold' => 'Effective Communication',                           'text' => 'Graduates apply the four macro skills in communication (reading, writing, listening, and speaking), through conventional and digital means, and are able to use these skills in solving problems, making decisions, and articulating thoughts when engaging with people in various circumstances.'],
+            ['bold' => 'Strong Service Orientation',                        'text' => 'Graduates exemplify strong commitment to service excellence for the people, the clientele, industry and other sectors.'],
+            ['bold' => 'Adept and Responsible Use or Development of Technology', 'text' => 'Graduates demonstrate optimized and responsible use of state-of-the-art technologies of their profession. They possess digital learning abilities, including technical, numerical, and/or technopreneurial skills.'],
+            ['bold' => 'Passion for Lifelong Learning',                     'text' => 'Graduates perform and function in society by taking responsibility in their quest for further improvement through lifelong learning.'],
+            ['bold' => 'Leadership and Organizational Skills',               'text' => 'Graduates assume leadership roles and become leading professionals in their respective disciplines by equipping them with appropriate organizational skills.'],
+            ['bold' => 'Personal and Professional Ethics',                   'text' => 'Graduates manifest integrity and adherence to moral and ethical principles in their personal and professional circumstances.'],
+            ['bold' => 'Resilience and Agility',                            'text' => 'Graduates demonstrate flexibility and the growth mindset to adapt and thrive in the volatile, uncertain, complex and ambiguous (VUCA) environment.'],
+            ['bold' => 'National and Global Responsiveness',                 'text' => 'Graduates exhibit a deep sense of nationalism as it complements the need to live as part of the global community where diversity is respected. They promote and fulfill various advocacies for human and social development.'],
+        ];
+        if (empty($ilos)) {
+            // Convert to the format expected by the ILO rendering loop below
+            $ilos = array_map(fn($x) => ['title' => $x['bold'] . '. ' . $x['text']], $iloFallback);
+        }
+
+        $collegeGoalsDefault = "Innovation and continuous improvement; to build a diverse, transparent, inclusive workforce; and reduce the organization's environmental impact. To offer curricula that are relevant and responsive to the changing needs of the industry and society; the ability of curriculum developers to translate knowledge about new development into curriculum content and structure; to promote critical thinking, a sense of adventure, and an openness to adapt challenges of their future workplace and give them the confidence and skills to continue to adapt; to provide a hierarchical system for grades levels/subjects within aims and objectives for individual lessons. To increase students' attention, and focus, promote a meaningful learning experience, encourage higher levels of student performance, motivate students to practice higher-order thinking skills; to prepare students to become productive, creative, innovative, and dynamic in their chosen fields of specialization and to provide state of the art facilities of learning to optimize student development; tap potentials of students, faculty, administrative staff, and other stakeholders in formulating policies for institutional development. To prepare holistic approaches to inculcate appropriate values that are necessary to build a humane, disciplined, nationalist, and independent society and to develop students, physical, emotional, social, and intellectual well-being through providing opportunities for students to learn and grow in all areas of their lives; to create a supportive, inclusive environment where students feel safe and respected; to be active participants in their learning for students to connect with others, build relationships and to help students develop a sense of purpose and direction. To build a culture of trust, deliver honest feedback, foster open communication, delegate responsibilities and tasks, and support growth opportunities to empower faculty members and employees. Also, to increase productivity and innovation; improve morale and satisfaction; better decision-making; increase engagement with students and clients, and make empowerment part of our university organizations, culture and vision. To a renowned leader and center of excellence in product utilization research, feasibility study, development, and technology transfer; develop the culture of collaborative research among students, faculty, and employees; to partner with industry and other research institutions in strengthening research capabilities of faculty, employees, and students; to facilitate presentation of research outputs in international fora, their publication in recognized local and international journals; and to develop the culture of collaborative research among students, faculty, and employees. To contribute to the attainment of Vision, Mission, Goal, and Objectives (VMGO) distinctively include complying with the rules and policies of the Polytechnic University of the Philippines (PUP); striving for academic excellence, participating actively in universities activities, becoming a role model, passing the board exam and conducting research. To maintain and enhance its high academic standards in the performance of its functions of instructions, research, and adaptive community for extension. To create value for each company and leverage combined expertise by offering students internship partnerships through a Memorandum of Agreement (MOA); undertake outreach and research-based extension programs by tapping all stakeholders; expertise and other resources. To increase understanding of stakeholder needs and expectations, improve communication and collaboration, and involve all stakeholders in enhancing student, faculty, and employee development programs, build trust and rapport with stakeholders, and get input from stakeholders on critical decisions. To ensure that our curricula possess Social Development Goals (SDG) such as social equity, justice, diversity, inclusion, democratic participation, empowerment, livelihood security, social well-being, and quality of life; to end poverty, to protect the earth, environment and climate and to ensure that students, educators, and stakeholders can enjoy peace and prosperity; to provide training to students that will enable them to become potent instruments for socio-economic development, produce technologies for commercialization or livelihood improvement, and achieve long-term economic growth.";
+
+        $programGoalsDefault = "The Bachelor of Science in Information Technology (BSIT) program is a four-year degree program which focuses on the study of computer utilization and computer software to plan, install, customize, operate, manage, administer and maintain information technology infrastructure. It likewise deals with the design and development of computer-based information systems for real-world business solutions. The program prepares students to become IT professionals with primary competencies in the areas of systems analysis and design, applications development, database administration, network administration, and systems implementation and maintenance. The program also requires a Capstone project. It should be in the form of an IT applications development as a business solution for an industry need.";
+
+        $programObjDefault = [
+            'To introduce students to current technologies and tools while learning new methodologies that will lead to the development of better information systems.',
+            'To enable students to understand the different components of the information technology field, including hardware, software, communication, networking, research, peopleware and management skills.',
+            'To demonstrate awareness of how to methodically and practically approach a variety of technological and managerial issues to ultimately improve business strategies and attain competitive advantage.',
+            'To inculcate to students the essential virtues and attitudes, as well as develop necessary knowledge and competency levels required of an information technology professional.',
+            "To train students to systematically analyze and evaluate organizational systems and processes in order to recommend software solutions that properly address the organization's needs and goals.",
+        ];
+
+        // Apply defaults when step1 data is absent
+        if ($collegeGoals === '') $collegeGoals = $t($collegeGoalsDefault);
+        if ($programGoals === '') $programGoals = $t($programGoalsDefault);
+        if (empty($programObjList)) {
+            $programObjList = array_map(fn($txt) => ['text' => $txt], $programObjDefault);
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         $plos        = $step2['plos']                  ?? [];
         $clos        = $step2['clos']                  ?? [];
@@ -308,20 +372,24 @@ class SyllabusController extends Controller
         $phpWord->setDefaultFontName('Arial Narrow');
         $phpWord->setDefaultFontSize(9);
 
-        // Section = one A4 landscape page group
+        // Section = one Legal landscape page group (35.56 x 21.59 cm)
+        // headerHeight/footerHeight: space reserved for real Word header/footer
+        $headerFooterH = Converter::cmToTwip(1.8);
         $sectionStyle = [
-            'pageSizeW'    => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(29.7),
-            'pageSizeH'    => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(21.0),
-            'orientation'  => 'landscape',
-            'marginTop'    => Converter::cmToTwip(1.0),
-            'marginBottom' => Converter::cmToTwip(1.0),
-            'marginLeft'   => Converter::cmToTwip(1.2),
-            'marginRight'  => Converter::cmToTwip(1.2),
+            'pageSizeW'      => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(35.56),
+            'pageSizeH'      => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(21.59),
+            'orientation'    => 'landscape',
+            'marginTop'      => Converter::cmToTwip(2.5),   // enough room for header
+            'marginBottom'   => Converter::cmToTwip(2.5),   // enough room for footer
+            'marginLeft'     => Converter::cmToTwip(1.2),
+            'marginRight'    => Converter::cmToTwip(1.2),
+            'headerHeight'   => $headerFooterH,
+            'footerHeight'   => $headerFooterH,
         ];
 
         // ── Shared style constants ───────────────────────────────────────────
-        // Page content width in twips: (29.7 - 1.8 - 1.8) cm = 26.1 cm
-        $pageW   = \PhpOffice\PhpWord\Shared\Converter::cmToTwip(26.1);
+        // Page content width in twips: (35.56 - 1.2 - 1.2) cm = 33.16 cm
+        $pageW   = \PhpOffice\PhpWord\Shared\Converter::cmToTwip(33.16);
         $border  = $this->docxBorder();
         $fntSm   = ['name' => 'Arial', 'size' => 8];
         $fntXSm  = ['name' => 'Arial', 'size' => 7];
@@ -347,129 +415,166 @@ class SyllabusController extends Controller
             $cell->addText($label, ['name' => 'Arial', 'size' => 9, 'bold' => true, 'color' => 'FFFFFF'], $center);
         };
 
-        // ── Helper: add a custom header/footer strip — mirrors layoutHfHtml() in PDF ──
-        // Parses the rich-editor HTML to extract left/right positioned images and
-        // center text, then builds a 3-column DOCX table matching the PDF layout.
-        $addHfTable = function (
+        // ── Helper: attach genuine Word header & footer to a section ──────────
+        // Uses PhpWord's native Header/Footer API so the header/footer appear
+        // in the actual Word header/footer area (visible in Print Layout & print).
+        $addWordHF = function (
             \PhpOffice\PhpWord\Element\Section $sec,
-            string $html,
-            bool $isFooter
+            string $headerHtml,
+            string $footerHtml
         ) use ($pageW, $fntXSm) {
 
-            if (trim($html) === '') return;
+            // --- Header ---
+            if (trim($headerHtml) !== '') {
+                $hdr = $sec->addHeader();
 
-            // Parse HTML to extract images and remaining text
-            libxml_use_internal_errors(true);
-            $dom = new \DOMDocument('1.0', 'UTF-8');
-            $dom->loadHTML(
-                '<?xml encoding="UTF-8"><div id="__hf__">' . $html . '</div>',
-                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
-            );
-            libxml_clear_errors();
+                // Parse images and text from the rich HTML
+                libxml_use_internal_errors(true);
+                $dom = new \DOMDocument('1.0', 'UTF-8');
+                $dom->loadHTML(
+                    '<?xml encoding="UTF-8"><div id="__hf__">' . $headerHtml . '</div>',
+                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
+                );
+                libxml_clear_errors();
 
-            $root      = $dom->getElementById('__hf__');
-            $leftImgs  = [];
-            $rightImgs = [];
-            $EDITOR_W  = 900;
-            $toRemove  = [];
-
-            foreach ($dom->getElementsByTagName('img') as $img) {
-                $style    = $img->getAttribute('style');
-                $leftPx   = 0; $widthPx = 80; $heightPx = 60;
-                if (preg_match('/left\s*:\s*([\d.]+)px/i',   $style, $m)) $leftPx   = (float)$m[1];
-                if (preg_match('/width\s*:\s*([\d.]+)px/i',  $style, $m)) $widthPx  = (int)$m[1];
-                if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx = (int)$m[1];
-                $src = $img->getAttribute('src');
-                if (empty($src)) { $toRemove[] = $img; continue; }
-                $scale  = min(1.0, 90 / max($heightPx, 1));
-                $wFinal = max(20, (int)($widthPx  * $scale));
-                $hFinal = max(10, (int)($heightPx * $scale));
-                $entry  = ['src' => $src, 'w' => $wFinal, 'h' => $hFinal, 'left' => $leftPx];
-                if ($leftPx < $EDITOR_W * 0.5) { $leftImgs[]  = $entry; }
-                else                            { $rightImgs[] = $entry; }
-                $toRemove[] = $img;
-            }
-            foreach ($toRemove as $node) { $node->parentNode?->removeChild($node); }
-
-            // Remaining text after image removal
-            $inner = '';
-            if ($root) { foreach ($root->childNodes as $child) { $inner .= $dom->saveHTML($child); } }
-            $plainText = trim(strip_tags($inner));
-
-            // Shared cell style (no noWrap so text can wrap)
-            $bdrTop    = $isFooter ? 6 : 0;
-            $bdrBottom = $isFooter ? 0 : 6;
-            $shading   = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F8F8F8'];
-            $cellBase  = [
-                'borderTopSize'    => $bdrTop,    'borderTopColor'    => 'CCCCCC',
-                'borderBottomSize' => $bdrBottom, 'borderBottomColor' => 'CCCCCC',
-                'borderLeftSize'   => 0,          'borderLeftColor'   => 'FFFFFF',
-                'borderRightSize'  => 0,          'borderRightColor'  => 'FFFFFF',
-                'shading'          => $shading,
-                'cellMargin'       => ['top' => 40, 'bottom' => 40, 'left' => 80, 'right' => 80],
-                'valign'           => 'center',
-                'noWrap'           => false,
-            ];
-
-            $hasLeft  = !empty($leftImgs);
-            $hasRight = !empty($rightImgs);
-
-            // Helper to add an image into a cell safely
-            $addImgToCell = function ($cell, array $img) use ($fntXSm) {
-                $src = $img['src'];
-                try {
-                    if (str_starts_with($src, 'data:')) {
-                        $parts   = explode(',', $src, 2);
-                        $tmpFile = tempnam(sys_get_temp_dir(), 'hfimg_') . '.png';
-                        file_put_contents($tmpFile, base64_decode($parts[1] ?? ''));
-                        $cell->addImage($tmpFile, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
-                        @unlink($tmpFile);
-                    } else {
-                        $cell->addImage($src, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
-                    }
-                } catch (\Throwable $e) {
-                    $cell->addText('[img]', $fntXSm);
+                $root     = $dom->getElementById('__hf__');
+                $leftImgs = []; $rightImgs = []; $EDITOR_W = 900; $toRemove = [];
+                foreach ($dom->getElementsByTagName('img') as $img) {
+                    $style = $img->getAttribute('style');
+                    $leftPx = 0; $widthPx = 80; $heightPx = 60;
+                    if (preg_match('/left\s*:\s*([\d.]+)px/i', $style, $m)) $leftPx  = (float)$m[1];
+                    if (preg_match('/width\s*:\s*([\d.]+)px/i', $style, $m)) $widthPx = (int)$m[1];
+                    if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx= (int)$m[1];
+                    $src = $img->getAttribute('src');
+                    if (empty($src)) { $toRemove[] = $img; continue; }
+                    $scale  = min(1.0, 70 / max($heightPx, 1));
+                    $wFinal = max(20, (int)($widthPx  * $scale));
+                    $hFinal = max(10, (int)($heightPx * $scale));
+                    $entry  = ['src' => $src, 'w' => $wFinal, 'h' => $hFinal, 'left' => $leftPx];
+                    if ($leftPx < $EDITOR_W * 0.5) $leftImgs[] = $entry;
+                    else                            $rightImgs[] = $entry;
+                    $toRemove[] = $img;
                 }
-            };
+                foreach ($toRemove as $n) { $n->parentNode?->removeChild($n); }
+                $inner = '';
+                if ($root) { foreach ($root->childNodes as $child) { $inner .= $dom->saveHTML($child); } }
+                $plainText = trim(strip_tags($inner));
 
-            // No images — plain single-cell row
-            if (!$hasLeft && !$hasRight) {
-                $tbl = $sec->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-                $tbl->addRow();
-                $tbl->addCell($pageW, $cellBase)->addText($plainText, $fntXSm);
-                return;
+                $addImgToElement = function ($element, array $img) use ($fntXSm) {
+                    $src = $img['src'];
+                    try {
+                        if (str_starts_with($src, 'data:')) {
+                            $parts   = explode(',', $src, 2);
+                            $tmpFile = tempnam(sys_get_temp_dir(), 'hfimg_') . '.png';
+                            file_put_contents($tmpFile, base64_decode($parts[1] ?? ''));
+                            $element->addImage($tmpFile, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
+                            @unlink($tmpFile);
+                        } else {
+                            $element->addImage($src, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
+                        }
+                    } catch (\Throwable $e) {
+                        $element->addText('[img]', $fntXSm);
+                    }
+                };
+
+                $hasLeft  = !empty($leftImgs);
+                $hasRight = !empty($rightImgs);
+
+                if (!$hasLeft && !$hasRight) {
+                    // Plain text header
+                    $hdr->addText($plainText, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
+                } else {
+                    // 3-column table in header
+                    $imgColW  = (int)($pageW * 0.15);
+                    $textColW = $pageW - ($hasLeft ? $imgColW : 0) - ($hasRight ? $imgColW : 0);
+                    $cellBase = ['borderTopSize' => 0, 'borderBottomSize' => 0, 'borderLeftSize' => 0, 'borderRightSize' => 0, 'cellMargin' => ['top' => 40, 'bottom' => 40, 'left' => 60, 'right' => 60]];
+                    $tbl = $hdr->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+                    $tbl->addRow();
+                    if ($hasLeft) {
+                        usort($leftImgs, fn($a, $b) => $a['left'] <=> $b['left']);
+                        $lCell = $tbl->addCell($imgColW, $cellBase);
+                        foreach ($leftImgs as $img) { $addImgToElement($lCell, $img); }
+                    }
+                    $cCell = $tbl->addCell($textColW, array_merge($cellBase, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]));
+                    if ($plainText !== '') { $cCell->addText($plainText, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]); }
+                    if ($hasRight) {
+                        usort($rightImgs, fn($a, $b) => $a['left'] <=> $b['left']);
+                        $rCell = $tbl->addCell($imgColW, $cellBase);
+                        foreach ($rightImgs as $img) { $addImgToElement($rCell, $img); }
+                    }
+                }
             }
 
-            // 3-column layout: [left-img | center text | right-img]
-            $imgColW  = (int)($pageW * 0.15);
-            $textColW = $pageW - ($hasLeft ? $imgColW : 0) - ($hasRight ? $imgColW : 0);
+            // --- Footer ---
+            if (trim($footerHtml) !== '') {
+                $ftr = $sec->addFooter();
 
-            $tbl = $sec->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-            $tbl->addRow();
+                libxml_use_internal_errors(true);
+                $dom2 = new \DOMDocument('1.0', 'UTF-8');
+                $dom2->loadHTML(
+                    '<?xml encoding="UTF-8"><div id="__hf2__">' . $footerHtml . '</div>',
+                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
+                );
+                libxml_clear_errors();
 
-            if ($hasLeft) {
-                usort($leftImgs, fn($a, $b) => $a['left'] <=> $b['left']);
-                $lCell = $tbl->addCell($imgColW, $cellBase);
-                foreach ($leftImgs as $img) { $addImgToCell($lCell, $img); }
-            }
+                $root2     = $dom2->getElementById('__hf2__');
+                $leftImgs2 = []; $rightImgs2 = []; $toRemove2 = [];
+                foreach ($dom2->getElementsByTagName('img') as $img) {
+                    $style = $img->getAttribute('style');
+                    $leftPx = 0; $widthPx = 80; $heightPx = 60;
+                    if (preg_match('/left\s*:\s*([\d.]+)px/i', $style, $m)) $leftPx  = (float)$m[1];
+                    if (preg_match('/width\s*:\s*([\d.]+)px/i', $style, $m)) $widthPx = (int)$m[1];
+                    if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx= (int)$m[1];
+                    $src = $img->getAttribute('src');
+                    if (empty($src)) { $toRemove2[] = $img; continue; }
+                    $scale  = min(1.0, 70 / max($heightPx, 1));
+                    $wFinal = max(20, (int)($widthPx  * $scale));
+                    $hFinal = max(10, (int)($heightPx * $scale));
+                    $entry  = ['src' => $src, 'w' => $wFinal, 'h' => $hFinal, 'left' => $leftPx];
+                    if ($leftPx < $EDITOR_W * 0.5) $leftImgs2[] = $entry;
+                    else                            $rightImgs2[] = $entry;
+                    $toRemove2[] = $img;
+                }
+                foreach ($toRemove2 as $n) { $n->parentNode?->removeChild($n); }
+                $inner2 = '';
+                if ($root2) { foreach ($root2->childNodes as $child) { $inner2 .= $dom2->saveHTML($child); } }
+                $plainText2 = trim(strip_tags($inner2));
 
-            $cCell = $tbl->addCell($textColW, array_merge($cellBase, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]));
-            if ($plainText !== '') { $cCell->addText($plainText, $fntXSm); }
+                $hasLeft2  = !empty($leftImgs2);
+                $hasRight2 = !empty($rightImgs2);
 
-            if ($hasRight) {
-                usort($rightImgs, fn($a, $b) => $a['left'] <=> $b['left']);
-                $rCell = $tbl->addCell($imgColW, array_merge($cellBase, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::RIGHT]));
-                foreach ($rightImgs as $img) { $addImgToCell($rCell, $img); }
+                if (!$hasLeft2 && !$hasRight2) {
+                    $ftr->addText($plainText2, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
+                } else {
+                    $imgColW   = (int)($pageW * 0.15);
+                    $textColW  = $pageW - ($hasLeft2 ? $imgColW : 0) - ($hasRight2 ? $imgColW : 0);
+                    $cellBase  = ['borderTopSize' => 0, 'borderBottomSize' => 0, 'borderLeftSize' => 0, 'borderRightSize' => 0, 'cellMargin' => ['top' => 40, 'bottom' => 40, 'left' => 60, 'right' => 60]];
+                    $tbl2 = $ftr->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+                    $tbl2->addRow();
+                    if ($hasLeft2) {
+                        usort($leftImgs2, fn($a, $b) => $a['left'] <=> $b['left']);
+                        $lCell2 = $tbl2->addCell($imgColW, $cellBase);
+                        foreach ($leftImgs2 as $img) { $addImgToElement($lCell2, $img); }
+                    }
+                    $cCell2 = $tbl2->addCell($textColW, array_merge($cellBase, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]));
+                    if ($plainText2 !== '') { $cCell2->addText($plainText2, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]); }
+                    if ($hasRight2) {
+                        usort($rightImgs2, fn($a, $b) => $a['left'] <=> $b['left']);
+                        $rCell2 = $tbl2->addCell($imgColW, $cellBase);
+                        foreach ($rightImgs2 as $img) { $addImgToElement($rCell2, $img); }
+                    }
+                }
             }
         };
+
 
         // ════════════════════════════════════════════════════════════════════
         // PAGE 1 — Course Overview (Step 1 + Step 2 top section)
         // ════════════════════════════════════════════════════════════════════
         $sec1 = $phpWord->addSection($sectionStyle);
 
-        // Custom header strip (matches PDF custom-header)
-        $addHfTable($sec1, $header, false);
+        // Attach genuine Word header & footer to this section
+        $addWordHF($sec1, $header, $footer);
 
         $sec1->addText(
             'POLYTECHNIC UNIVERSITY OF THE PHILIPPINES',
@@ -520,7 +625,7 @@ class SyllabusController extends Controller
             'valign'      => 'center',
         ]));
         $bannerCell->addText(
-            'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY',
+            strtoupper($courseName),
             [
                 'name'  => 'Arial Narrow',
                 'size'  => 13,
@@ -623,26 +728,44 @@ class SyllabusController extends Controller
             $vCell->addText($val ?: ' ', $fntValue);
         }
 
-        // ILO row
-        if (!empty($ilos)) {
-            $mainTable->addRow(350);
-            $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('INSTITUTIONAL LEARNING OUTCOMES (ILO)', $fntLabel, $center);
-            $iloCell = $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
-            foreach ($ilos as $i => $ilo) {
-                $iloText = ($i + 1) . '. ' . $t($s($ilo['title'] ?? ($ilo['text'] ?? '')));
-                $iloCell->addText($iloText, $fntValue);
-            }
+        // ILO row (always shown — fallback ensures it's non-empty)
+        $mainTable->addRow(350);
+        $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('INSTITUTIONAL LEARNING OUTCOMES (ILO)', $fntLabel, $center);
+        $iloCell = $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
+        foreach ($ilos as $i => $ilo) {
+            $iloText = ($i + 1) . '. ' . $t($s($ilo['title'] ?? ($ilo['text'] ?? '')));
+            $iloCell->addText($iloText, $fntValue);
         }
 
-        // Custom footer strip
-        $addHfTable($sec1, $footer, true);
+        // College/Campus Goals row — numbered list
+        $mainTable->addRow(350);
+        $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('COLLEGE / CAMPUS GOALS', $fntLabel, $center);
+        $cgCell = $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
+        $cgSentences = array_filter(array_map('trim', preg_split('/(?<=\.)\s+(?=To\s)/i', $collegeGoals ?: ' ')));
+        if (empty($cgSentences)) { $cgSentences = [$collegeGoals ?: ' ']; }
+        foreach (array_values($cgSentences) as $gi => $goal) {
+            $cgCell->addText(($gi + 1) . '. ' . $goal, $fntValue);
+        }
+
+        // Program Goals row (always shown — falls back to COMP001 default)
+        $mainTable->addRow(350);
+        $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('PROGRAM GOALS', $fntLabel, $center);
+        $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]))->addText($programGoals ?: ' ', $fntValue);
+
+        // Program Objectives row (always shown — falls back to COMP001 default)
+        $mainTable->addRow(350);
+        $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('PROGRAM OBJECTIVES', $fntLabel, $center);
+        $objCell = $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
+        foreach ($programObjList as $pi => $obj) {
+            $objCell->addText(($pi + 1) . '. ' . $t($s($obj['text'] ?? ($obj['title'] ?? ''))), $fntValue);
+        }
 
         // ════════════════════════════════════════════════════════════════════
         // PAGE 2 — PLO/ILO + CLO/PLO Mapping (Step 2)
         // ════════════════════════════════════════════════════════════════════
         $sec2 = $phpWord->addSection($sectionStyle);
 
-        $addHfTable($sec2, $header, false);
+        $addWordHF($sec2, $header, $footer);
 
         // Banner (same dark style as Page 1)
         $bannerTable2 = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
@@ -652,7 +775,7 @@ class SyllabusController extends Controller
             'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
             'valign'     => 'center',
         ]));
-        $bannerCell2->addText('BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY', ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
+        $bannerCell2->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
         $bannerCell2->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 14, 'bold' => true, 'color' => 'FFFFFF'], $center);
 
         // PLO → ILO table
@@ -719,8 +842,6 @@ class SyllabusController extends Controller
 
         $sec2->addText('Legend: L-Learned, P-Practiced, O-Opportunity to Learn', $fntXSm);
 
-        $addHfTable($sec2, $footer, true);
-
         // ════════════════════════════════════════════════════════════════════
         // PAGES — OBTL (Step 3), 7 rows per page
         // ════════════════════════════════════════════════════════════════════
@@ -746,7 +867,7 @@ class SyllabusController extends Controller
 
             $secO = $phpWord->addSection($sectionStyle);
 
-            $addHfTable($secO, $header, false);
+            $addWordHF($secO, $header, $footer);
 
             // Banner (same dark style as other pages)
             $obtlBanner = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
@@ -756,7 +877,7 @@ class SyllabusController extends Controller
                 'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
                 'valign'     => 'center',
             ]));
-            $obtlBannerCell->addText('BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY', ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
+            $obtlBannerCell->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
             $obtlBannerCell->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 14, 'bold' => true, 'color' => 'FFFFFF'], $center);
 
             // OBTL table
@@ -882,7 +1003,6 @@ class SyllabusController extends Controller
                 }
             }
 
-            $addHfTable($secO, $footer, true);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -890,7 +1010,7 @@ class SyllabusController extends Controller
         // ════════════════════════════════════════════════════════════════════
         $secP = $phpWord->addSection($sectionStyle);
 
-        $addHfTable($secP, $header, false);
+        $addWordHF($secP, $header, $footer);
 
         // Section banner — matches PDF .section-banner "CLASSROOM POLICIES (TO BE FILLED OUT BY THE ASSIGNED FACULTY)"
         $addSectionBanner($secP, 'CLASSROOM POLICIES (TO BE FILLED OUT BY THE ASSIGNED FACULTY)');
@@ -981,14 +1101,12 @@ class SyllabusController extends Controller
             }
         }
 
-        $addHfTable($secP, $footer, true);
-
         // ════════════════════════════════════════════════════════════════════
         // PAGE — Course Requirements & Grading (Step 4 continued)
         // ════════════════════════════════════════════════════════════════════
         $secG = $phpWord->addSection($sectionStyle);
 
-        $addHfTable($secG, $header, false);
+        $addWordHF($secG, $header, $footer);
 
         // Section banner matching PDF
         $addSectionBanner($secG, 'COURSE REQUIREMENTS & EVALUATION');
@@ -1001,7 +1119,7 @@ class SyllabusController extends Controller
         $reqCell  = $gradTable->addCell($gradW1, array_merge($border, ['cellMargin' => $cellPad]));
         $gradCell = $gradTable->addCell($gradW2, array_merge($border, ['cellMargin' => $cellPad]));
 
-        $reqCell->addText('COURSE REQUIREMENTS', array_merge($fntNorm, ['bold' => true, 'underline' => \PhpOffice\PhpWord\Style\Font::UNDERLINE_SINGLE]));
+        $reqCell->addText('COURSE REQUIREMENT/S with CLO links', array_merge($fntNorm, ['bold' => true, 'underline' => \PhpOffice\PhpWord\Style\Font::UNDERLINE_SINGLE]));
         foreach ($requirements as $req) {
             $txt = $t($s($req['text'] ?? ''));
             $clo = $s($req['clo'] ?? '');
@@ -1022,8 +1140,6 @@ class SyllabusController extends Controller
         }
         $gradCell->addText('TOTAL: 100%', array_merge($fntNorm, ['bold' => true]));
 
-        $addHfTable($secG, $footer, true);
-
         // ════════════════════════════════════════════════════════════════════
         // PAGES — Rubrics + Group Grade + Class Info + Signatories (Step 5)
         // ════════════════════════════════════════════════════════════════════
@@ -1035,7 +1151,7 @@ class SyllabusController extends Controller
 
             $secR = $phpWord->addSection($sectionStyle);
 
-            $addHfTable($secR, $header, false);
+            $addWordHF($secR, $header, $footer);
 
             if ($isFirst) {
                 $secR->addText('Part 1. Rubrics for Assessment (to be filled out by the assigned faculty)', array_merge($fntSm, ['bold' => true]));
@@ -1159,12 +1275,17 @@ class SyllabusController extends Controller
                 }
             }
 
-            $addHfTable($secR, $footer, true);
         }
 
         // ── Write & stream ───────────────────────────────────────────────────
         $tmpPath = tempnam(sys_get_temp_dir(), 'syllabus_') . '.docx';
-        \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007')->save($tmpPath);
+        try {
+            \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007')->save($tmpPath);
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+            Log::error('PhpWord save failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            throw $e; // re-throw so store()'s try/catch logs it properly
+        }
 
         return response()->download(
             $tmpPath,
@@ -1224,13 +1345,14 @@ class SyllabusController extends Controller
         $sec->addText($text, array_merge($font, ['bold' => true]));
     }
 
-    private function buildHtml(string $courseCode, string $courseTitle,
+    private function buildHtml(string $courseCode, string $courseTitle, string $courseName,
         array $step1, array $step2, array $step3, array $step4, array $step5,
         string $header, string $footer): string
     {
         // ── Helpers ──────────────────────────────────────────────────────────
         $h  = fn(string $v): string => htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $nl = fn(string $v): string => nl2br(htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+        $courseNameH = $h(strtoupper($courseName ?: 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY'));
 
         // ── Step 1 ────────────────────────────────────────────────────────────
         $credit      = $h((string)($step1['course_credit']      ?? ''));
@@ -1376,12 +1498,14 @@ class SyllabusController extends Controller
 
             // Yellow banner only on overall page 1 (Course Overview), not on OBTL pages
             $yellowBanner = '';
+            $obtlLabel = $isFirst ? '<p style="font-weight:bold;font-size:9pt;margin:4px 0 2px;">OUTCOMES-BASED TEACHING AND LEARNING PLAN (OBTL PLAN)</p>' : '';
 
             $obtlPagesHtml .= '
             <div class="page" style="page-break-before:always;">
                 ' . $this->renderHeaderHtml($header) . '
                 ' . $yellowBanner . '
-                <table style="width:100%;border-collapse:collapse;border:1px solid black;font-size:8pt;table-layout:fixed;">
+                ' . $obtlLabel . '
+                <table style="width:100%;border-collapse:collapse;border:1px solid black;font-size:8pt;table-layout:fixed;margin-top:0;">
                     <colgroup>
                         <col style="width:6%;"/><col style="width:18%;"/><col style="width:10%;"/>
                         <col style="width:15%;"/><col style="width:13%;"/><col style="width:13%;"/>
@@ -1399,30 +1523,6 @@ class SyllabusController extends Controller
         $gradingComponents = $step4['gradingComponents'] ?? [];
         $requirements      = $step4['requirements']      ?? [];
         $f2fLink           = $h($step4['f2fLink']        ?? '');
-
-        $reqItems = '';
-        foreach ($requirements as $req) {
-            $t   = $h($req['text'] ?? '');
-            $clo = $h($req['clo']  ?? '');
-            $reqItems .= "<li style=\"margin-bottom:8px;\"><span style=\"font-weight:bold;\">{$t}</span>" . ($clo ? " <span style=\"font-style:italic;color:#666;\">({$clo})</span>" : '') . "</li>";
-        }
-
-        $gradingRows = '';
-        $total = 0;
-        foreach ($gradingComponents as $comp) {
-            $lbl  = $h($comp['label']      ?? ($comp['name'] ?? ''));
-            $pct  = (int)($comp['percentage'] ?? 0);
-            $total += $pct;
-            $subs = isset($comp['subItems']) ? implode(', ', array_map(fn($s) => $h($s['label'] ?? ''), $comp['subItems'])) : '';
-            $gradingRows .= "
-            <tr style=\"border-bottom:1px dotted #ccc;\">
-                <td style=\"padding:4px 4px 4px 0;font-size:8.5pt;vertical-align:top;\">
-                    <p style=\"font-weight:bold;margin:0;\">{$lbl}</p>" .
-                    ($subs ? "<p style=\"font-size:7pt;color:#666;margin:0;\">{$subs}</p>" : '') . "
-                </td>
-                <td style=\"padding:4px 0 4px 4px;font-size:8.5pt;font-weight:bold;text-align:right;vertical-align:top;white-space:nowrap;\">{$pct}%</td>
-            </tr>";
-        }
 
         // ── Step 5 ────────────────────────────────────────────────────────────
         $classInfo   = $step5['classInfo']    ?? [];
@@ -1548,8 +1648,8 @@ class SyllabusController extends Controller
             $rubricPagesHtml .= '
             <div class="page" style="page-break-before:always;">
                 ' . $this->renderHeaderHtml($header) . '
-                <hr style="border:1px solid black;margin-bottom:8px;"/>
-                <p style="font-weight:bold;margin-bottom:4px;font-size:8pt;">'
+                <div class="section-banner">RUBRICS FOR ASSESSMENT (TO BE FILLED OUT BY THE ASSIGNED FACULTY)</div>
+                <p style="font-weight:bold;margin:4px 0;font-size:8pt;">'
                     . ($isFirst ? 'Part 1. ' : '')
                     . 'Rubrics for Assessment (to be filled out by the assigned faculty)</p>
                 <table style="width:100%;border-collapse:collapse;border:1px solid black;font-size:8pt;">
@@ -1583,7 +1683,114 @@ class SyllabusController extends Controller
         // (PHP heredocs don't support $this->method() calls)
         $hdrHtml    = $this->renderHeaderHtml($header);
         $ftrHtml    = $this->renderFooterHtml($footer);
-        $yellowBannerStatic = $this->yellowBannerHtml();
+        $yellowBannerStatic = '<div class="header-yellow">' . $courseNameH . '<br/>Outcomes-Based Course Syllabus</div>';
+
+        // ── Step 1 dynamic fields for HTML ───────────────────────────────────
+        $visionVal  = strip_tags((string)($step1['vision']  ?? ''));
+        $missionVal = strip_tags((string)($step1['mission'] ?? ''));
+        $qualityVal = strip_tags((string)($step1['quality_statement_policy'] ?? ''));
+        $ilosArr    = $step1['ilos'] ?? [];
+
+        $visionH  = $h($visionVal  ?: 'A Leading Comprehensive Polytechnic University in Asia');
+        $missionH = $h($missionVal ?: 'Advance an inclusive, equitable, and globally relevant polytechnic education towards national development.');
+        $qualityH = $h($qualityVal ?: 'The Polytechnic University of the Philippines commits to provide inclusive and equitable quality education and promote lifelong learning opportunities. Toward this end, we, the members of the PUP Community, will vigorously and steadfastly endeavor to continuously improve the standard of university services.');
+
+        // ILO list HTML
+        $iloHtml = '<ol style="margin:0 0 0 16px;padding:0;">';
+        // ── Static PUP defaults (from COMP 001 template) ─────────────────────
+        $iloDefault = [
+            ['bold' => 'Critical and Creative Thinking', 'text' => 'Graduates use their rational and reflective thinking as well as innovative abilities to life situations in order to push boundaries, realize possibilities, and deepen their interdisciplinary, multidisciplinary, and/or transdisciplinary understanding of the world.'],
+            ['bold' => 'Effective Communication', 'text' => 'Graduates apply the four macro skills in communication (reading, writing, listening, and speaking), through conventional and digital means, and are able to use these skills in solving problems, making decisions, and articulating thoughts when engaging with people in various circumstances.'],
+            ['bold' => 'Strong Service Orientation', 'text' => 'Graduates exemplify strong commitment to service excellence for the people, the clientele, industry and other sectors.'],
+            ['bold' => 'Adept and Responsible Use or Development of Technology', 'text' => 'Graduates demonstrate optimized and responsible use of state-of-the-art technologies of their profession. They possess digital learning abilities, including technical, numerical, and/or technopreneurial skills.'],
+            ['bold' => 'Passion for Lifelong Learning', 'text' => 'Graduates perform and function in society by taking responsibility in their quest for further improvement through lifelong learning.'],
+            ['bold' => 'Leadership and Organizational Skills', 'text' => 'Graduates assume leadership roles and become leading professionals in their respective disciplines by equipping them with appropriate organizational skills.'],
+            ['bold' => 'Personal and Professional Ethics', 'text' => 'Graduates manifest integrity and adherence to moral and ethical principles in their personal and professional circumstances.'],
+            ['bold' => 'Resilience and Agility', 'text' => 'Graduates demonstrate flexibility and the growth mindset to adapt and thrive in the volatile, uncertain, complex and ambiguous (VUCA) environment.'],
+            ['bold' => 'National and Global Responsiveness', 'text' => 'Graduates exhibit a deep sense of nationalism as it complements the need to live as part of the global community where diversity is respected. They promote and fulfill various advocacies for human and social development.'],
+        ];
+
+        $collegeGoalsDefault = 'Innovation and continuous improvement; to build a diverse, transparent, inclusive workforce; and reduce the organization\'s environmental impact. To offer curricula that are relevant and responsive to the changing needs of the industry and society; the ability of curriculum developers to translate knowledge about new development into curriculum content and structure; to promote critical thinking, a sense of adventure, and an openness to adapt challenges of their future workplace and give them the confidence and skills to continue to adapt; to provide a hierarchical system for grades levels/subjects within aims and objectives for individual lessons. To increase students\' attention, and focus, promote a meaningful learning experience, encourage higher levels of student performance, motivate students to practice higher-order thinking skills; to prepare students to become productive, creative, innovative, and dynamic in their chosen fields of specialization and to provide state of the art facilities of learning to optimize student development; tap potentials of students, faculty, administrative staff, and other stakeholders in formulating policies for institutional development. To prepare holistic approaches to inculcate appropriate values that are necessary to build a humane, disciplined, nationalist, and independent society and to develop students, physical, emotional, social, and intellectual well-being through providing opportunities for students to learn and grow in all areas of their lives; to create a supportive, inclusive environment where students feel safe and respected; to be active participants in their learning for students to connect with others, build relationships and to help students develop a sense of purpose and direction. To build a culture of trust, deliver honest feedback, foster open communication, delegate responsibilities and tasks, and support growth opportunities to empower faculty members and employees. Also, to increase productivity and innovation; improve morale and satisfaction; better decision-making; increase engagement with students and clients, and make empowerment part of our university organizations, culture and vision. To a renowned leader and center of excellence in product utilization research, feasibility study, development, and technology transfer; develop the culture of collaborative research among students, faculty, and employees; to partner with industry and other research institutions in strengthening research capabilities of faculty, employees, and students; to facilitate presentation of research outputs in international fora, their publication in recognized local and international journals; and to develop the culture of collaborative research among students, faculty, and employees. To contribute to the attainment of Vision, Mission, Goal, and Objectives (VMGO) distinctively include complying with the rules and policies of the Polytechnic University of the Philippines (PUP); striving for academic excellence, participating actively in universities activities, becoming a role model, passing the board exam and conducting research. To maintain and enhance its high academic standards in the performance of its functions of instructions, research, and adaptive community for extension. To create value for each company and leverage combined expertise by offering students internship partnerships through a Memorandum of Agreement (MOA); undertake outreach and research-based extension programs by tapping all stakeholders; expertise and other resources. To increase understanding of stakeholder needs and expectations, improve communication and collaboration, and involve all stakeholders in enhancing student, faculty, and employee development programs, build trust and rapport with stakeholders, and get input from stakeholders on critical decisions. To ensure that our curricula possess Social Development Goals (SDG) such as social equity, justice, diversity, inclusion, democratic participation, empowerment, livelihood security, social well-being, and quality of life; to end poverty, to protect the earth, environment and climate and to ensure that students, educators, and stakeholders can enjoy peace and prosperity; to provide training to students that will enable them to become potent instruments for socio-economic development, produce technologies for commercialization or livelihood improvement, and achieve long-term economic growth.';
+
+        $programGoalsDefault = 'The Bachelor of Science in Information Technology (BSIT) program is a four-year degree program which focuses on the study of computer utilization and computer software to plan, install, customize, operate, manage, administer and maintain information technology infrastructure. It likewise deals with the design and development of computer-based information systems for real-world business solutions. The program prepares students to become IT professionals with primary competencies in the areas of systems analysis and design, applications development, database administration, network administration, and systems implementation and maintenance. The program also requires a Capstone project. It should be in the form of an IT applications development as a business solution for an industry need.';
+
+        $programObjDefault = [
+            'To introduce students to current technologies and tools while learning new methodologies that will lead to the development of better information systems.',
+            'To enable students to understand the different components of the information technology field, including hardware, software, communication, networking, research, peopleware and management skills.',
+            'To demonstrate awareness of how to methodically and practically approach a variety of technological and managerial issues to ultimately improve business strategies and attain competitive advantage.',
+            'To inculcate to students the essential virtues and attitudes, as well as develop necessary knowledge and competency levels required of an information technology professional.',
+            'To train students to systematically analyze and evaluate organizational systems and processes in order to recommend software solutions that properly address the organization\'s needs and goals.',
+        ];
+        // ─────────────────────────────────────────────────────────────────────
+
+        if (!empty($ilosArr)) {
+            foreach ($ilosArr as $ilo) {
+                $iloHtml .= '<li>' . $h(strip_tags((string)($ilo['title'] ?? ($ilo['text'] ?? '')))) . '</li>';
+            }
+        } else {
+            foreach ($iloDefault as $ilo) {
+                $iloHtml .= '<li><strong>' . $h($ilo['bold']) . '.</strong> ' . $h($ilo['text']) . '</li>';
+            }
+        }
+        $iloHtml .= '</ol>';
+
+        // College/Campus Goals — use step1 data if present, otherwise use COMP001 default
+        $collegeGoalsVal = strip_tags((string)($step1['college_goals'] ?? $step1['campus_goals'] ?? ''));
+        $collegeGoalsDisplay = $collegeGoalsVal ?: $collegeGoalsDefault;
+        // Split into numbered list: split on ". To " and "To " sentence starters for readability
+        $collegeGoalsSentences = array_filter(array_map('trim', preg_split('/(?<=\.)\s+(?=To\s)/i', $collegeGoalsDisplay)));
+        if (empty($collegeGoalsSentences)) { $collegeGoalsSentences = [$collegeGoalsDisplay]; }
+        $collegeGoalsListHtml = '<ol style="margin:0 0 0 16px;padding:0;">';
+        foreach ($collegeGoalsSentences as $goal) {
+            $collegeGoalsListHtml .= '<li style="margin-bottom:2px;">' . $h($goal) . '</li>';
+        }
+        $collegeGoalsListHtml .= '</ol>';
+        $collegeGoalsRow = '<tr><td class="label-cell">COLLEGE / CAMPUS GOALS</td><td style="font-size:8pt;">' . $collegeGoalsListHtml . '</td></tr>';
+
+        // Program Goals — use step1 data if present, otherwise use COMP001 default
+        $programGoalsVal = strip_tags((string)($step1['program_goals'] ?? ''));
+        $programGoalsDisplay = $programGoalsVal ?: $programGoalsDefault;
+        $programGoalsRow = '<tr><td class="label-cell">PROGRAM GOALS</td><td style="font-size:9pt;text-align:justify;">' . $h($programGoalsDisplay) . '</td></tr>';
+
+        // Program Objectives — use step1 data if present, otherwise use COMP001 default
+        $programObjListArr = $step1['program_objectives'] ?? [];
+        $objItems = '<ol style="margin:0 0 0 16px;padding:0;">';
+        if (!empty($programObjListArr)) {
+            foreach ($programObjListArr as $obj) {
+                $objItems .= '<li>' . $h(strip_tags((string)($obj['text'] ?? ($obj['title'] ?? '')))) . '</li>';
+            }
+        } else {
+            foreach ($programObjDefault as $obj) {
+                $objItems .= '<li>' . $h($obj) . '</li>';
+            }
+        }
+        $objItems .= '</ol>';
+        $programObjRow = '<tr><td class="label-cell">PROGRAM OBJECTIVES</td><td style="font-size:9pt;">' . $objItems . '</td></tr>';
+
+        // Course Requirements rows for grading page
+        $reqItems = '';
+        foreach ($requirements as $req) {
+            $rt  = $h($req['text'] ?? '');
+            $clo = $h($req['clo']  ?? '');
+            $reqItems .= "<li style=\"margin-bottom:8px;\"><span style=\"font-weight:bold;\">{$rt}</span>" . ($clo ? " <span style=\"font-style:italic;color:#666;\">({$clo})</span>" : '') . "</li>";
+        }
+
+        $gradingRows = '';
+        $total = 0;
+        foreach ($gradingComponents as $comp) {
+            $lbl  = $h($comp['label']      ?? ($comp['name'] ?? ''));
+            $pct  = (int)($comp['percentage'] ?? 0);
+            $total += $pct;
+            $subs = isset($comp['subItems']) ? implode(', ', array_map(fn($s) => $h($s['label'] ?? ''), $comp['subItems'])) : '';
+            $gradingRows .= "
+            <tr style=\"border-bottom:1px dotted #ccc;\">
+                <td style=\"padding:4px 4px 4px 0;font-size:8.5pt;vertical-align:top;\">
+                    <p style=\"font-weight:bold;margin:0;\">{$lbl}</p>" .
+                    ($subs ? "<p style=\"font-size:7pt;color:#666;margin:0;\">{$subs}</p>" : '') . "
+                </td>
+                <td style=\"padding:4px 0 4px 4px;font-size:8.5pt;font-weight:bold;text-align:right;vertical-align:top;white-space:nowrap;\">{$pct}%</td>
+            </tr>";
+        }
 
         return <<<HTML
 <!DOCTYPE html>
@@ -1593,25 +1800,25 @@ class SyllabusController extends Controller
 <style>
   * { box-sizing: border-box; }
   body  { font-family: Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; color: #000; }
-  .page { padding: 10px 18px; }
+  .page { padding: 8px 14px; }
   .custom-header {
     font-size: 8.5pt;
     line-height: 1.4;
-    margin-bottom: 6px;
-    padding-bottom: 4px;
+    margin-bottom: 4px;
+    padding-bottom: 3px;
     border-bottom: 1px solid #888;
   }
   .custom-footer {
     font-size: 8.5pt;
     line-height: 1.4;
-    margin-top: 6px;
-    padding-top: 4px;
+    margin-top: 4px;
+    padding-top: 3px;
     border-top: 1px solid #888;
   }
-  .header-yellow { background-color: #FFF9C4; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 8px; margin-bottom: 0; font-size: 9pt; }
+  .header-yellow { background-color: #FFF9C4; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 6px; margin-bottom: 0; font-size: 9pt; }
   .syllabus-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-wrap: break-word; font-size: 8pt; }
-  .syllabus-table td, .syllabus-table th { border: 1px solid black; padding: 5px; vertical-align: top; }
-  .label-cell { background-color: #fcfcfc; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; }
+  .syllabus-table td, .syllabus-table th { border: 1px solid black; padding: 4px; vertical-align: top; }
+  .label-cell { background-color: #fcfcfc; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; vertical-align: middle; }
   .section-banner { background: #e2e8f0; border: 1px solid black; padding: 4px; text-align: center; font-weight: bold; font-size: 8pt; text-transform: uppercase; margin-bottom: 0; }
 </style>
 </head>
@@ -1623,35 +1830,34 @@ class SyllabusController extends Controller
 <div class="page">
     {$hdrHtml}
     <div class="header-yellow">
-        Bachelor of Science in Information Technology<br/>
+        {$courseNameH}<br/>
         Outcomes-Based Course Syllabus
     </div>
     <table class="syllabus-table" style="table-layout:fixed;">
         <colgroup>
-            <col style="width:15%;"/><col style="width:15%;"/>
-            <col style="width:12%;"/><col style="width:38%;"/>
+            <col style="width:12%;"/><col style="width:12%;"/>
+            <col style="width:10%;"/><col style="width:38%;"/>
             <col style="width:12%;"/><col style="width:8%;"/>
+            <col style="width:8%;"/>
         </colgroup>
         <tbody>
             <tr>
-                <td class="label-cell">Course Code</td>
-                <td style="font-weight:bold;font-size:9pt;">{$codeH}</td>
-                <td class="label-cell">Course Title</td>
-                <td style="font-weight:bold;font-size:9pt;">{$titleH}</td>
-                <td class="label-cell">Course Credit</td>
-                <td style="text-align:center;font-size:9pt;">{$credit}</td>
+                <td class="label-cell">COURSE CODE</td>
+                <td style="font-weight:bold;font-size:9pt;vertical-align:middle;">{$codeH}</td>
+                <td class="label-cell">COURSE TITLE</td>
+                <td style="font-weight:bold;font-size:9pt;vertical-align:middle;">{$titleH}</td>
+                <td class="label-cell">COURSE CREDIT</td>
+                <td colspan="2" style="text-align:center;font-size:9pt;vertical-align:middle;">{$credit}</td>
             </tr>
             <tr>
-                <td colspan="6" style="font-size:9pt;text-align:justify;padding:10px;">
-                    <span style="font-weight:bold;text-transform:uppercase;display:block;margin-bottom:4px;">Course Description</span>
-                    <span style="font-style:italic;">{$description}</span>
-                </td>
+                <td class="label-cell">COURSE DESCRIPTION</td>
+                <td colspan="6" style="font-size:9pt;text-align:justify;">{$description}</td>
             </tr>
             <tr>
-                <td class="label-cell">Pre-Requisites</td>
+                <td class="label-cell">PRE-REQUISITES</td>
                 <td colspan="2" style="font-size:9pt;">{$preReq}</td>
-                <td class="label-cell">Co-Requisites</td>
-                <td colspan="2" style="font-size:9pt;">{$coReq}</td>
+                <td class="label-cell">CO-REQUISITES</td>
+                <td colspan="3" style="font-size:9pt;">{$coReq}</td>
             </tr>
         </tbody>
     </table>
@@ -1662,38 +1868,23 @@ class SyllabusController extends Controller
         <tbody>
             <tr>
                 <td class="label-cell">VISION</td>
-                <td style="font-weight:bold;text-align:center;font-size:9pt;">
-                    PUP: The National Polytechnic University<br/>
-                    (PUP: Pambansang Politeknikong Unibersidad)
-                </td>
+                <td style="font-size:9pt;text-align:justify;">{$visionH}</td>
             </tr>
             <tr>
                 <td class="label-cell">MISSION</td>
-                <td style="font-size:9pt;text-align:justify;">
-                    Ensuring inclusive and equitable quality education and promoting lifelong learning opportunities through a re-engineered polytechnic university by committing to:
-                    <ul style="margin:4px 0 0 16px;">
-                        <li>provide democratized access to educational opportunities for the holistic development of individuals with global perspective</li>
-                        <li>offer industry-oriented curricula that produce highly skilled professionals...</li>
-                        <li>embed a culture of research and innovation</li>
-                    </ul>
-                </td>
+                <td style="font-size:9pt;text-align:justify;">{$missionH}</td>
             </tr>
             <tr>
-                <td class="label-cell">QUALITY STATEMENT POLICY</td>
-                <td style="font-size:9pt;text-align:justify;">
-                    The Polytechnic University of the Philippines commits to provide inclusive and equitable quality education and promote lifelong learning opportunities... Toward this end, we, the members of the PUP Community, will vigorously and steadfastly endeavor to continuously improve the standard of university services...
-                </td>
+                <td class="label-cell">QUALITY POLICY STATEMENT</td>
+                <td style="font-size:9pt;text-align:justify;">{$qualityH}</td>
             </tr>
             <tr>
                 <td class="label-cell">INSTITUTIONAL LEARNING OUTCOMES (ILO)</td>
-                <td style="font-size:9pt;">
-                    <ol style="margin:0 0 0 16px;padding:0;">
-                        <li><strong>Creative and Critical Thinking</strong> - Graduates use their imaginative as well as rational thinking abilities...</li>
-                        <li><strong>Effective Communication</strong> - Graduates are proficient in the four macro skills in communication...</li>
-                        <li><strong>Strong Service Orientation</strong> - Graduates exemplify the potentialities of an efficient, well-rounded and responsible professional...</li>
-                    </ol>
-                </td>
+                <td style="font-size:9pt;">{$iloHtml}</td>
             </tr>
+            {$collegeGoalsRow}
+            {$programGoalsRow}
+            {$programObjRow}
         </tbody>
     </table>
     {$ftrHtml}
@@ -1812,16 +2003,16 @@ class SyllabusController extends Controller
 <div class="page" style="page-break-before:always;">
     {$hdrHtml}
     <div class="section-banner">COURSE REQUIREMENTS &amp; EVALUATION</div>
-    <table style="width:100%;border-collapse:collapse;border:1px solid black;min-height:100mm;font-size:8.5pt;">
+    <table style="width:100%;border-collapse:collapse;border:1px solid black;font-size:8.5pt;">
         <tr style="vertical-align:top;">
-            <td style="border:1px solid black;padding:14px;width:60%;">
-                <p style="font-weight:bold;font-size:9pt;text-transform:uppercase;text-decoration:underline;margin:0 0 8px;">Course Requirements</p>
+            <td style="border:1px solid black;padding:10px;width:60%;">
+                <p style="font-weight:bold;font-size:9pt;text-transform:uppercase;text-decoration:underline;margin:0 0 8px;">COURSE REQUIREMENT/S with CLO links</p>
                 <ul style="margin:0 0 0 18px;padding:0;">
                     {$reqItems}
                 </ul>
             </td>
-            <td style="border:1px solid black;padding:14px;width:40%;">
-                <p style="font-weight:bold;font-size:9pt;text-transform:uppercase;text-decoration:underline;margin:0 0 8px;">Grading System</p>
+            <td style="border:1px solid black;padding:10px;width:40%;">
+                <p style="font-weight:bold;font-size:9pt;text-transform:uppercase;text-decoration:underline;margin:0 0 8px;">GRADING SYSTEM</p>
                 <table style="width:100%;border-collapse:collapse;">
                     {$gradingRows}
                     <tr>
@@ -1847,9 +2038,10 @@ HTML;
 
     // ── Small helpers used inside buildHtml ───────────────────────────────────
 
-    private function yellowBannerHtml(): string
+    private function yellowBannerHtml(string $courseName = 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY'): string
     {
-        return '<div class="header-yellow">Bachelor of Science in Information Technology<br/>Outcomes-Based Course Syllabus</div>';
+        $safe = htmlspecialchars(strtoupper($courseName), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        return '<div class="header-yellow">' . $safe . '<br/>Outcomes-Based Course Syllabus</div>';
     }
 
     /**

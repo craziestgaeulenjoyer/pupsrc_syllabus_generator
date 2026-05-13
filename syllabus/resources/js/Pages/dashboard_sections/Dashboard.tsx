@@ -36,16 +36,16 @@ export default function Dashboard() {
     const isSortApplied = dateSort !== "" || deptSort !== "";
     
 
-    const syllabuses = [
-        { id: 1, name: "BSBA-MM 2026 - Syllabus", date: "January 8, 2026 8:30 AM", type: "PDF", department: "BSBA-MM" },
-        { id: 2, name: "BSIT 2026 - Syllabus", date: "February 8, 2026 9:00 PM", type: "Excel", department: "BSIT" },
-        { id: 3, name: "BSIT 2026 - Syllabus", date: "February 8, 2026 9:00 PM", type: "Docx", department: "BSIT" },
-        { id: 4, name: "BSIE 2026 - Syllabus", date: "February 8, 2026 9:00 PM", type: "Excel", department: "BSIE" },
-        { id: 5, name: "BSBA-HRM 2026 - Syllabus", date: "January 8, 2026 8:30 AM", type: "Docx", department: "BSBA-HRM" },
-        { id: 6, name: "BSIT 2026 - Syllabus", date: "February 8, 2026 9:00 PM", type: "PDF", department: "BSIT" },
-        { id: 7, name: "BSIT 2026 - Syllabus", date: "February 8, 2026 9:00 PM", type: "PDF", department: "BSIT" },
-        { id: 8, name: "BSIE 2026 - Syllabus", date: "February 8, 2026 9:00 PM", type: "Excel", department: "BSIE" },
-    ];
+    // Syllabi for the logged-in professor, passed by DashboardController
+    const rawSyllabuses: any[] = props.syllabuses ?? [];
+
+    const syllabuses = rawSyllabuses.map((s: any) => ({
+        id:         s.id,
+        name:       s.course_title ?? s.course_code ?? `Syllabus #${s.id}`,
+        date:       s.updated_at ?? s.created_at ?? '',
+        type:       'PDF' as const,
+        department: s.course_name_header ?? s.course_code ?? '—',
+    }));
 
     const filteredSyllabuses = syllabuses
         .filter((file) => {
@@ -361,17 +361,36 @@ return (
                         </div>
                     </div>
 
-                    {/* SYLLABUS CARDS GRID (LIKE YOUR IMAGE) */}
-                    {filteredSyllabuses.length === 0 ? (
-                        <div className="flex items-center justify-center min-h-[300px] w-full" style={{ fontFamily: "Poppins, sans-serif" }}>
-                        <div className="flex flex-col items-center justify-center text-center">
-                            <img
-                            src="https://img.icons8.com/?size=100&id=xIe14rYy1ngM&format=png&color=64748b"
-                            width="40"
-                            className="mb-2"
-                            />
-                            <p className="text-gray-500">No syllabus found.</p>
+                    {/* SYLLABUS CARDS GRID */}
+                    {syllabuses.length === 0 ? (
+                        // ── No syllabi in DB for this professor ──
+                        <div className="flex items-center justify-center min-h-[380px] w-full" style={{ fontFamily: "Poppins, sans-serif" }}>
+                            <div className="flex flex-col items-center justify-center text-center gap-4">
+                                <img
+                                    src="https://img.icons8.com/?size=100&id=xIe14rYy1ngM&format=png&color=64748b"
+                                    width="56"
+                                    className="mb-1 opacity-60"
+                                />
+                                <p className="text-gray-500 text-base font-semibold">No syllabus fetched. Create One!</p>
+                                <button
+                                    onClick={() => router.visit('/syllabus-generator/step-1')}
+                                    className="mt-1 px-6 py-2.5 bg-red-800 hover:bg-red-900 active:scale-95 text-white text-sm font-bold rounded-xl shadow-md transition"
+                                >
+                                    Generate Syllabus
+                                </button>
+                            </div>
                         </div>
+                    ) : filteredSyllabuses.length === 0 ? (
+                        // ── Records exist but search/filter returned nothing ──
+                        <div className="flex items-center justify-center min-h-[300px] w-full" style={{ fontFamily: "Poppins, sans-serif" }}>
+                            <div className="flex flex-col items-center justify-center text-center">
+                                <img
+                                    src="https://img.icons8.com/?size=100&id=xIe14rYy1ngM&format=png&color=64748b"
+                                    width="40"
+                                    className="mb-2"
+                                />
+                                <p className="text-gray-500">No syllabus found.</p>
+                            </div>
                         </div>
                     ) : (
                         isGrid ? (
@@ -409,7 +428,7 @@ return (
                                         {file.name}
                                     </h4>
                                     <p className="text-xs text-gray-500">
-                                        {file.date}
+                                        {file.date ? new Date(file.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : '—'}
                                     </p>
                                     </div>
 

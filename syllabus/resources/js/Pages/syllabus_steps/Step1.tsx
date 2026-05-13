@@ -25,6 +25,146 @@ const Step1 = () => {
     const [showSaveToast, setShowSaveToast] = useState(false);
     const [alertMessage, setAlertMessage] = useState<string | null>(null);
     const [alertType, setAlertType] = useState<'error' | 'success'>('error');
+    const [contextModal, setContextModal] = useState<{ title: string; content: React.ReactNode } | null>(null);
+
+    const campusGoals = [
+        "Innovation and continuous improvement; to build a diverse, transparent, inclusive workforce; and reduce the organization's environmental impact.",
+        "To offer curricula that are relevant and responsive to the changing needs of the industry and society; the ability of curriculum developers to translate knowledge about new development into curriculum content and structure; to promote critical thinking, a sense of adventure, and an openness to adapt challenges of their future workplace and give them the confidence and skills to continue to adapt; to provide a hierarchical system for grades levels/subjects within aims and objectives for individual lessons.",
+        "To increase students' attention, and focus, promote a meaningful learning experience, encourage higher levels of student performance, motivate students to practice higher-order thinking skills; to prepare students to become productive, creative, innovative, and dynamic in their chosen fields of specialization and to provide state of the art facilities of learning to optimize student development; tap potentials of students, faculty, administrative staff, and other stakeholders in formulating policies for institutional development.",
+        "To prepare holistic approaches to inculcate appropriate values that are necessary to build a humane, disciplined, nationalist, and independent society and to develop students, physical, emotional, social, and intellectual well-being through providing opportunities for students to learn and grow in all areas of their lives; to create a supportive, inclusive environment where students feel safe and respected; to be active participants in their learning for students to connect with others, build relationships and to help students develop a sense of purpose and direction.",
+        "To build a culture of trust, deliver honest feedback, foster open communication, delegate responsibilities and tasks, and support growth opportunities to empower faculty members and employees. Also, to increase productivity and innovation; improve morale and satisfaction; better decision-making; increase engagement with students and clients, and make empowerment part of our university organizations, culture and vision.",
+        "To a renowned leader and center of excellence in product utilization research, feasibility study, development, and technology transfer; develop the culture of collaborative research among students, faculty, and employees; to partner with industry and other research institutions in strengthening research capabilities of faculty, employees, and students; to facilitate presentation of research outputs in international fora, their publication in recognized local and international journals; and to develop the culture of collaborative research among students, faculty, and employees.",
+        "To contribute to the attainment of Vision, Mission, Goal, and Objectives (VMGO) distinctively include complying with the rules and policies of the Polytechnic University of the Philippines (PUP); striving for academic excellence, participating actively in universities activities, becoming a role model, passing the board exam and conducting research. To maintain and enhance its high academic standards in the performance of its functions of instructions, research, and adaptive community for extension.",
+        "To create value for each company and leverage combined expertise by offering students internship partnerships through a Memorandum of Agreement (MOA); undertake outreach and research-based extension programs by tapping all stakeholders; expertise and other resources.",
+        "To increase understanding of stakeholder needs and expectations, improve communication and collaboration, and involve all stakeholders in enhancing student, faculty, and employee development programs, build trust and rapport with stakeholders, and get input from stakeholders on critical decisions.",
+        "To ensure that our curricula possess Social Development Goals (SDG) such as social equity, justice, diversity, inclusion, democratic participation, empowerment, livelihood security, social well-being, and quality of life; to end poverty, to protect the earth, environment and climate and to ensure that students, educators, and stakeholders can enjoy peace and prosperity; to provide training to students that will enable them to become potent instruments for socio-economic development, produce technologies for commercialization or livelihood improvement, and achieve long-term economic growth.",
+    ];
+
+    const MODAL_CONTENT: Record<string, { title: string; content: React.ReactNode }> = {
+        vision: {
+            title: 'PUP Vision & Mission',
+            content: (
+                <div className="space-y-5">
+                    <div className="rounded-xl overflow-hidden border border-slate-200">
+                        <div className="bg-[#800000]/10 px-4 py-2 border-b border-slate-200">
+                            <span className="text-xs font-black uppercase tracking-widest text-[#800000]">Vision</span>
+                        </div>
+                        <div className="px-4 py-3 bg-white">
+                            <p className="text-sm font-bold text-slate-800 text-center leading-relaxed">
+                                PUP: The National Polytechnic University<br/>
+                                <span className="font-normal text-slate-600">(PUP: Pambansang Politeknikong Unibersidad)</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div className="rounded-xl overflow-hidden border border-slate-200">
+                        <div className="bg-[#800000]/10 px-4 py-2 border-b border-slate-200">
+                            <span className="text-xs font-black uppercase tracking-widest text-[#800000]">Mission</span>
+                        </div>
+                        <div className="px-4 py-3 bg-white">
+                            <p className="text-sm text-slate-700 leading-relaxed mb-2">Ensuring inclusive and equitable quality education and promoting lifelong learning opportunities through a re-engineered polytechnic university by committing to:</p>
+                            <ul className="space-y-1.5 ml-2">
+                                {['Provide democratized access to educational opportunities for the holistic development of individuals with global perspective.','Offer industry-oriented curricula that produce highly skilled professionals.','Embed a culture of research and innovation.'].map((item, i) => (
+                                    <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#800000] shrink-0" />{item}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            ),
+        },
+        quality: {
+            title: 'Quality Policy Statement',
+            content: (
+                <div className="rounded-xl overflow-hidden border border-slate-200">
+                    <div className="bg-[#800000]/10 px-4 py-2 border-b border-slate-200">
+                        <span className="text-xs font-black uppercase tracking-widest text-[#800000]">Quality Policy Statement</span>
+                    </div>
+                    <div className="px-4 py-4 bg-white">
+                        <p className="text-sm text-slate-700 leading-relaxed text-justify italic border-l-4 border-[#800000]/30 pl-4">
+                            "The Polytechnic University of the Philippines commits to provide inclusive and equitable quality education and promote lifelong learning opportunities. Toward this end, we, the members of the PUP Community, will vigorously and steadfastly endeavor to continuously improve the standard of university services."
+                        </p>
+                    </div>
+                </div>
+            ),
+        },
+        ilo: {
+            title: 'Institutional Learning Outcomes (ILO)',
+            content: (
+                <div className="space-y-2.5">
+                    {[
+                        { bold: 'Critical and Creative Thinking', text: 'Graduates use their rational and reflective thinking as well as innovative abilities to life situations in order to push boundaries, realize possibilities, and deepen their interdisciplinary, multidisciplinary, and/or transdisciplinary understanding of the world.' },
+                        { bold: 'Effective Communication', text: 'Graduates apply the four macro skills in communication (reading, writing, listening, and speaking), through conventional and digital means, and are able to use these skills in solving problems, making decisions, and articulating thoughts when engaging with people in various circumstances.' },
+                        { bold: 'Strong Service Orientation', text: 'Graduates exemplify strong commitment to service excellence for the people, the clientele, industry and other sectors.' },
+                        { bold: 'Adept and Responsible Use or Development of Technology', text: 'Graduates demonstrate optimized and responsible use of state-of-the-art technologies of their profession. They possess digital learning abilities, including technical, numerical, and/or technopreneurial skills.' },
+                        { bold: 'Passion for Lifelong Learning', text: 'Graduates perform and function in society by taking responsibility in their quest for further improvement through lifelong learning.' },
+                        { bold: 'Leadership and Organizational Skills', text: 'Graduates assume leadership roles and become leading professionals in their respective disciplines by equipping them with appropriate organizational skills.' },
+                        { bold: 'Personal and Professional Ethics', text: 'Graduates manifest integrity and adherence to moral and ethical principles in their personal and professional circumstances.' },
+                        { bold: 'Resilience and Agility', text: 'Graduates demonstrate flexibility and the growth mindset to adapt and thrive in the volatile, uncertain, complex and ambiguous (VUCA) environment.' },
+                        { bold: 'National and Global Responsiveness', text: 'Graduates exhibit a deep sense of nationalism as it complements the need to live as part of the global community where diversity is respected. They promote and fulfill various advocacies for human and social development.' },
+                    ].map((ilo, i) => (
+                        <div key={i} className="flex gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                            <span className="flex-none w-5 h-5 rounded-full bg-[#800000] text-white text-[10px] font-black flex items-center justify-center mt-0.5">{i + 1}</span>
+                            <p className="text-sm text-slate-700 leading-relaxed"><span className="font-bold text-slate-900">{ilo.bold}.</span> {ilo.text}</p>
+                        </div>
+                    ))}
+                </div>
+            ),
+        },
+        campus: {
+            title: 'College / Campus Goals',
+            content: (
+                <div className="space-y-2.5">
+                    {campusGoals.map((goal, i) => (
+                        <div key={i} className="flex gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                            <span className="flex-none w-5 h-5 rounded-full bg-[#800000] text-white text-[10px] font-black flex items-center justify-center mt-0.5">{i + 1}</span>
+                            <p className="text-sm text-slate-700 leading-relaxed">{goal}</p>
+                        </div>
+                    ))}
+                </div>
+            ),
+        },
+        programgoals: {
+            title: 'Program Goals',
+            content: (
+                <div className="rounded-xl overflow-hidden border border-slate-200">
+                    <div className="bg-[#800000]/10 px-4 py-2 border-b border-slate-200">
+                        <span className="text-xs font-black uppercase tracking-widest text-[#800000]">BSIT Program Goals</span>
+                    </div>
+                    <div className="px-4 py-4 bg-white">
+                        <p className="text-sm text-slate-700 leading-relaxed text-justify">
+                            The Bachelor of Science in Information Technology (BSIT) program is a four-year degree program which focuses on the study of computer utilization and computer software to plan, install, customize, operate, manage, administer and maintain information technology infrastructure. It likewise deals with the design and development of computer-based information systems for real-world business solutions. The program prepares students to become IT professionals with primary competencies in the areas of systems analysis and design, applications development, database administration, network administration, and systems implementation and maintenance. The program also requires a Capstone project. It should be in the form of an IT applications development as a business solution for an industry need.
+                        </p>
+                    </div>
+                </div>
+            ),
+        },
+        programobj: {
+            title: 'Program Objectives',
+            content: (
+                <div className="space-y-2.5">
+                    {[
+                        'To introduce students to current technologies and tools while learning new methodologies that will lead to the development of better information systems.',
+                        'To enable students to understand the different components of the information technology field, including hardware, software, communication, networking, research, peopleware and management skills.',
+                        'To demonstrate awareness of how to methodically and practically approach a variety of technological and managerial issues to ultimately improve business strategies and attain competitive advantage.',
+                        'To inculcate to students the essential virtues and attitudes, as well as develop necessary knowledge and competency levels required of an information technology professional.',
+                        "To train students to systematically analyze and evaluate organizational systems and processes in order to recommend software solutions that properly address the organization's needs and goals.",
+                    ].map((obj, i) => (
+                        <div key={i} className="flex gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                            <span className="flex-none w-5 h-5 rounded-full bg-[#800000] text-white text-[10px] font-black flex items-center justify-center mt-0.5">{i + 1}</span>
+                            <p className="text-sm text-slate-700 leading-relaxed">{obj}</p>
+                        </div>
+                    ))}
+                </div>
+            ),
+        },
+    };
+
+    const openContextModal = (key: string) => {
+        const entry = MODAL_CONTENT[key];
+        if (entry) setContextModal(entry);
+    };
 
     const Font = ReactQuill.Quill.import('formats/font') as any;
 
@@ -488,19 +628,39 @@ const Step1 = () => {
 
                     <div className="lg:col-span-4 space-y-6">
                         <div className="bg-white p-5 md:p-7 rounded-3xl shadow-sm border border-slate-200">
-                            <h3 className="font-extrabold text-lg border-b pb-3 mb-6 flex items-center gap-2 text-[#800000]">
+                            <h3 className="font-extrabold text-lg border-b pb-3 mb-4 flex items-center gap-2 text-[#800000]">
                                 Institutional Context
                             </h3>
-                            <div className="space-y-3">
-                                {['PUP Vision & Mission', 'Quality Policy Statement', 'Institutional Learning Outcomes (ILO)', 'Campus Goals'].map((title, idx) => (
-                                    <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <ScrollText size={16} className="text-[#800000]" />
-                                            <span className="text-[10px] md:text-xs font-bold text-slate-700">{title}</span>
+                            <div className="space-y-2.5 mb-4">
+                                {[
+                                    { title: 'PUP Vision & Mission',                 icon: <ScrollText size={15} className="text-[#800000] shrink-0" />,   key: 'vision' },
+                                    { title: 'Quality Policy Statement',              icon: <ScrollText size={15} className="text-[#800000] shrink-0" />,   key: 'quality' },
+                                    { title: 'Institutional Learning Outcomes (ILO)', icon: <GraduationCap size={15} className="text-[#800000] shrink-0" />, key: 'ilo' },
+                                    { title: 'Campus Goals',                          icon: <ListChecks size={15} className="text-[#800000] shrink-0" />,   key: 'campus' },
+                                    { title: 'Program Goals',                         icon: <BookOpen size={15} className="text-[#800000] shrink-0" />,     key: 'programgoals' },
+                                    { title: 'Program Objectives',                    icon: <CheckCircle2 size={15} className="text-[#800000] shrink-0" />, key: 'programobj' },
+                                ].map(({ title, icon, key }) => (
+                                    <button
+                                        key={key}
+                                        type="button"
+                                        onClick={() => openContextModal(key)}
+                                        className="w-full p-3 bg-slate-50 hover:bg-[#800000]/5 rounded-xl border border-slate-200 hover:border-[#800000]/30 flex items-center justify-between transition-all group"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            {icon}
+                                            <span className="text-[10px] md:text-xs font-bold text-slate-700 text-left">{title}</span>
                                         </div>
-                                        <CheckCircle2 size={14} className="text-green-500" />
-                                    </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <span className="text-[9px] text-[#800000] font-semibold opacity-0 group-hover:opacity-100 transition-opacity">View</span>
+                                            <ChevronRight size={13} className="text-[#800000]" />
+                                        </div>
+                                    </button>
                                 ))}
+                            </div>
+                            <div className="border-t border-dashed border-slate-200 pt-3">
+                                <p className="text-[10px] text-slate-400 italic text-center leading-relaxed">
+                                    These will be inserted automatically with the generated syllabus.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -557,7 +717,7 @@ const Step1 = () => {
                                         </tbody>
                                     </table>
 
-                                    {/* Vision & Mission Sections */}
+                                    {/* Institutional Context Table */}
                                     <table className="syllabus-table -mt-px">
                                         <tbody>
                                             <tr>
@@ -573,7 +733,7 @@ const Step1 = () => {
                                                     Ensuring inclusive and equitable quality education and promoting lifelong learning opportunities through a re-engineered polytechnic university by committing to:
                                                     <ul className="list-disc ml-5 mt-1">
                                                         <li>provide democratized access to educational opportunities for the holistic development of individuals with global perspective</li>
-                                                        <li>offer industry-oriented curricula that produce highly skilled professionals...</li>
+                                                        <li>offer industry-oriented curricula that produce highly skilled professionals</li>
                                                         <li>embed a culture of research and innovation</li>
                                                     </ul>
                                                 </td>
@@ -581,22 +741,96 @@ const Step1 = () => {
                                             <tr>
                                                 <td className="label-cell">QUALITY STATEMENT POLICY</td>
                                                 <td className="value-cell text-justify">
-                                                    The Polytechnic University of the Philippines commits to provide inclusive and equitable quality education and promote lifelong learning opportunities... Toward this end, we, the members of the PUP Community, will vigorously and steadfastly endeavor to continuously improve the standard of university services...
+                                                    The Polytechnic University of the Philippines commits to provide inclusive and equitable quality education and promote lifelong learning opportunities. Toward this end, we, the members of the PUP Community, will vigorously and steadfastly endeavor to continuously improve the standard of university services.
                                                 </td>
                                             </tr>
                                             <tr>
                                                 <td className="label-cell">INSTITUTIONAL LEARNING OUTCOMES (ILO)</td>
                                                 <td className="value-cell">
-                                                    <ol className="list-decimal ml-5">
-                                                        <li><strong>Creative and Critical Thinking</strong> - Graduates use their imaginative as well as rational thinking abilities...</li>
-                                                        <li><strong>Effective Communication</strong> - Graduates are proficient in the four macro skills in communication...</li>
-                                                        <li><strong>Strong Service Orientation</strong> - Graduates exemplify the potentialities of an efficient, well-rounded and responsible professional...</li>
+                                                    <ol className="list-decimal ml-5 space-y-1">
+                                                        <li><strong>Critical and Creative Thinking</strong> – Graduates use their rational and reflective thinking as well as innovative abilities to life situations in order to push boundaries, realize possibilities, and deepen their interdisciplinary, multidisciplinary, and/or transdisciplinary understanding of the world.</li>
+                                                        <li><strong>Effective Communication</strong> – Graduates apply the four macro skills in communication (reading, writing, listening, and speaking), through conventional and digital means, and are able to use these skills in solving problems, making decisions, and articulating thoughts when engaging with people in various circumstances.</li>
+                                                        <li><strong>Strong Service Orientation</strong> – Graduates exemplify strong commitment to service excellence for the people, the clientele, industry and other sectors.</li>
+                                                        <li><strong>Adept and Responsible Use or Development of Technology</strong> – Graduates demonstrate optimized and responsible use of state-of-the-art technologies of their profession. They possess digital learning abilities, including technical, numerical, and/or technopreneurial skills.</li>
+                                                        <li><strong>Passion for Lifelong Learning</strong> – Graduates perform and function in society by taking responsibility in their quest for further improvement through lifelong learning.</li>
+                                                        <li><strong>Leadership and Organizational Skills</strong> – Graduates assume leadership roles and become leading professionals in their respective disciplines by equipping them with appropriate organizational skills.</li>
+                                                        <li><strong>Personal and Professional Ethics</strong> – Graduates manifest integrity and adherence to moral and ethical principles in their personal and professional circumstances.</li>
+                                                        <li><strong>Resilience and Agility</strong> – Graduates demonstrate flexibility and the growth mindset to adapt and thrive in the volatile, uncertain, complex and ambiguous (VUCA) environment.</li>
+                                                        <li><strong>National and Global Responsiveness</strong> – Graduates exhibit a deep sense of nationalism as it complements the need to live as part of the global community where diversity is respected. They promote and fulfill various advocacies for human and social development.</li>
+                                                    </ol>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td className="label-cell">COLLEGE / CAMPUS GOALS</td>
+                                                <td className="value-cell">
+                                                    <ol className="list-decimal ml-5 space-y-1">
+                                                        {campusGoals.map((goal, i) => (
+                                                            <li key={i}>{goal}</li>
+                                                        ))}
+                                                    </ol>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td className="label-cell">PROGRAM GOALS</td>
+                                                <td className="value-cell text-justify">
+                                                    The Bachelor of Science in Information Technology (BSIT) program is a four-year degree program which focuses on the study of computer utilization and computer software to plan, install, customize, operate, manage, administer and maintain information technology infrastructure. It likewise deals with the design and development of computer-based information systems for real-world business solutions. The program prepares students to become IT professionals with primary competencies in the areas of systems analysis and design, applications development, database administration, network administration, and systems implementation and maintenance. The program also requires a Capstone project. It should be in the form of an IT applications development as a business solution for an industry need.
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td className="label-cell">PROGRAM OBJECTIVES</td>
+                                                <td className="value-cell">
+                                                    <ol className="list-decimal ml-5 space-y-1">
+                                                        <li>To introduce students to current technologies and tools while learning new methodologies that will lead to the development of better information systems.</li>
+                                                        <li>To enable students to understand the different components of the information technology field, including hardware, software, communication, networking, research, peopleware and management skills.</li>
+                                                        <li>To demonstrate awareness of how to methodically and practically approach a variety of technological and managerial issues to ultimately improve business strategies and attain competitive advantage.</li>
+                                                        <li>To inculcate to students the essential virtues and attitudes, as well as develop necessary knowledge and competency levels required of an information technology professional.</li>
+                                                        <li>To train students to systematically analyze and evaluate organizational systems and processes in order to recommend software solutions that properly address the organization's needs and goals.</li>
                                                     </ol>
                                                 </td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ── Institutional Context Modal ───────────────────────────────── */}
+            <AnimatePresence>
+                {contextModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[250] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+                        onClick={() => setContextModal(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.92, opacity: 0, y: 16 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.92, opacity: 0, y: 16 }}
+                            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+                            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[82vh] flex flex-col overflow-hidden"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="bg-[#800000] px-5 py-4 flex items-center justify-between shrink-0">
+                                <div className="flex items-center gap-2.5 text-white">
+                                    <BookOpen size={17} />
+                                    <span className="font-bold text-sm">{contextModal.title}</span>
+                                </div>
+                                <button type="button" onClick={() => setContextModal(null)} className="text-white/70 hover:text-white hover:bg-white/10 rounded-lg p-1 transition-all">
+                                    <X size={19} />
+                                </button>
+                            </div>
+                            <div className="overflow-y-auto p-5 flex-1 scrollbar-hide">
+                                {contextModal.content}
+                            </div>
+                            <div className="px-5 py-3 border-t border-slate-100 shrink-0 flex justify-end bg-slate-50/60">
+                                <button type="button" onClick={() => setContextModal(null)} className="px-4 py-2 rounded-lg bg-[#800000] text-white text-xs font-bold hover:bg-[#600000] transition-all active:scale-95">
+                                    Close
+                                </button>
                             </div>
                         </motion.div>
                     </motion.div>
