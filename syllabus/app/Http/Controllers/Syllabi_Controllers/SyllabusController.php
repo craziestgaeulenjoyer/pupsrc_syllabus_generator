@@ -7,14 +7,53 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Barryvdh\DomPDF\Facade\Pdf;
-use PhpOffice\PhpWord\PhpWord;
-use PhpOffice\PhpWord\IOFactory;
-use PhpOffice\PhpWord\Shared\Html;
 use PhpOffice\PhpWord\Shared\Converter;
+use Inertia\Inertia;
 use App\Models\Syllabus;
 
 class SyllabusController extends Controller
 {
+    public function show(int $id)
+    {
+        $professorId = Auth::id();
+
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId) // security: only owner can view
+            ->firstOrFail();
+
+        $step1 = $this->safeJson($syllabus->step1);
+        $step2 = $this->safeJson($syllabus->step2);
+        $step3 = $this->safeJson($syllabus->step3);
+        $step4 = $this->safeJson($syllabus->step4);
+        $step5 = $this->safeJson($syllabus->step5);
+        $step6 = $this->safeJson($syllabus->step6);
+
+        $courseCode  = $syllabus->course_code  ?? '';
+        $courseTitle = $syllabus->course_title ?? '';
+        $courseName  = $syllabus->course_name_header ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY';
+        $header      = $step6['header'] ?? '';
+        $footer      = $step6['footer'] ?? '';
+
+        $syllabusHtml = $this->buildHtml(
+            $courseCode,
+            $courseTitle,
+            $courseName,
+            $step1, $step2, $step3, $step4, $step5,
+            $header,
+            $footer
+        );
+
+        return Inertia::render('pdf_viewer_layout/PdfViewer', [
+            'file' => [
+                'id'          => $syllabus->id,
+                'name'        => $courseTitle ?: $courseCode ?: "Syllabus #{$syllabus->id}",
+                'date'        => $syllabus->updated_at?->format('F j, Y') ?? '',
+                'syllabusHtml'=> $syllabusHtml, // full rendered HTML
+                'url'         => null,          // no static PDF
+            ],
+        ]);
+    }
+
     public function store(Request $request)
     {
         $request->validate([

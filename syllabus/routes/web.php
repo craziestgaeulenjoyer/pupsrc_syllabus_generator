@@ -83,15 +83,5 @@ Route::middleware(['auth'])->group(function () {
         ->name('syllabus.save.alias');
 
     /* ---------------- PDF VIEWER ROUTES ---------------- */
-    Route::get('/viewer/{id}', function ($id) {
-        $file = [
-            "id"   => $id,
-            "name" => "BSIT 2026 - SYLLABUS",
-            "date" => "January 25, 2026",
-            "url"  => "/sample.pdf"
-        ];
-        return Inertia::render('pdf_viewer_layout/PdfViewer', [
-            'file' => $file
-        ]);
-    });
+    Route::get('/viewer/{id}', [SyllabusController::class, 'show'])->name('syllabus.view');
 });
