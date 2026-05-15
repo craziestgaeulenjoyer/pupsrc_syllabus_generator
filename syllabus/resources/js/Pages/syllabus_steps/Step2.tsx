@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
+import { route } from 'ziggy-js';
 import Navbar from '../navbar_layouts/Navbar';
 import { 
     ChevronLeft, ChevronRight, X, FileText, 
@@ -12,6 +14,22 @@ import Alert from '../Validation/Alert';
 import DeleteModal from '../modals_section/DeleteConfirmation';
 
 const Step2 = () => {
+    // ── Inertia props (present only in edit mode) ────────────────────────────
+    const { props } = usePage<{
+        isEditMode?: boolean;
+        syllabusHash?: string;
+        step2?: {
+            plos?: { id: number; label: string }[];
+            clos?: { id: number; text: string }[];
+            iloMapping?: Record<string, boolean>;
+            ploMapping?: Record<string, string | null>;
+        };
+    }>();
+
+    const isEditMode   = props.isEditMode   ?? false;
+    const syllabusHash = props.syllabusHash ?? null;
+    const serverStep2  = props.step2        ?? null;
+
     const [showPreview, setShowPreview] = useState(false);
     const [validationError, setValidationError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -88,7 +106,11 @@ const Step2 = () => {
             setValidationError(null);
 
             setTimeout(() => {
-                window.location.href = "/syllabus-generator/step-3";
+                if (isEditMode && syllabusHash) {
+                    router.visit(route('syllabus.step3.edit', { hash: syllabusHash }));
+                } else {
+                    window.location.href = "/syllabus-generator/step-3";
+                }
             }, 1000);
         }
     };
@@ -138,16 +160,24 @@ const Step2 = () => {
 
     useEffect(() => {
         const sessionId = sessionStorage.getItem('syllabus_session_id');
-        if (!sessionId) return;
+        if (!sessionId) {
+            // Edit mode with no sessionId yet: seed from server and store
+            if (isEditMode && serverStep2) {
+                setIloMapping(serverStep2.iloMapping ?? {});
+                setPloMapping(serverStep2.ploMapping ?? {});
+                if (serverStep2.plos?.length) setPlos(serverStep2.plos);
+                if (serverStep2.clos?.length) setClos(serverStep2.clos);
+            }
+            return;
+        }
 
         const key = `syllabus_step2_${sessionId}`;
-
         const saved = sessionStorage.getItem(key);
 
         if (saved) {
+            // sessionStorage draft always takes priority (preserves in-progress edits)
             try {
                 const parsed = JSON.parse(saved);
-
                 setPlos(parsed.plos?.length ? parsed.plos : defaultPlos);
                 setClos(parsed.clos?.length ? parsed.clos : defaultClos);
                 setIloMapping(parsed.iloMapping ?? {});
@@ -155,10 +185,17 @@ const Step2 = () => {
             } catch (err) {
                 console.error("Failed to parse Step 2 data", err);
             }
+        } else if (isEditMode && serverStep2) {
+            // First visit in edit mode: seed from server, then it will be auto-saved
+            setIloMapping(serverStep2.iloMapping ?? {});
+            setPloMapping(serverStep2.ploMapping ?? {});
+            if (serverStep2.plos?.length) setPlos(serverStep2.plos);
+            if (serverStep2.clos?.length) setClos(serverStep2.clos);
         }
     }, []);
 
     useEffect(() => {
+        // Auto-save in both create and edit mode so navigating back preserves changes
         const sessionId = sessionStorage.getItem('syllabus_session_id');
         if (!sessionId) return;
 
@@ -594,7 +631,9 @@ const Step2 = () => {
                     {/* NAV BUTTONS */}
                     <div className="flex gap-2 w-full sm:w-auto">
                         <Link
-                            href="/syllabus-generator/step-1"
+                            href={isEditMode && syllabusHash
+                                ? route('syllabus.step1.edit', { hash: syllabusHash })
+                                : "/syllabus-generator/step-1"}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs sm:text-sm border border-slate-200 transition-all"
                         >
                             <ChevronLeft size={16} /> Back

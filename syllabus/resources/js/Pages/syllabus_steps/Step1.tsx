@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, useForm, usePage } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     ChevronRight, BookOpen, ScrollText, CheckCircle2, 
@@ -18,6 +18,25 @@ import Alert from '../Validation/Alert';
 import DOMPurify from 'dompurify';
 
 const Step1 = () => {
+    // ── Inertia props (present only in edit mode) ────────────────────────────
+    const { props } = usePage<{
+        isEditMode?: boolean;
+        syllabusHash?: string;
+        sessionId?: string;
+        step1?: {
+            course_code?: string;
+            course_credit?: number;
+            course_title?: string;
+            pre_requisites?: string;
+            co_requisites?: string;
+            course_description?: string;
+        };
+    }>();
+
+    const isEditMode  = props.isEditMode ?? false;
+    const syllabusHash  = props.syllabusHash ?? null;
+    const serverStep1 = props.step1 ?? null;
+
     const [showPreview, setShowPreview] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
     const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
@@ -198,27 +217,43 @@ const Step1 = () => {
         if (type === 'down' && current > 0) setData('course_credit', current - 1);
     };
 
-    const sessionId = sessionStorage.getItem('syllabus_session_id');
+    const sessionId = isEditMode
+        ? (props.sessionId ?? sessionStorage.getItem('syllabus_session_id'))
+        : sessionStorage.getItem('syllabus_session_id');
 
     const storageKey = sessionId
         ? `syllabus_step1_${sessionId}`
         : null;
 
     const { data, setData, post, processing, errors } = useForm(() => {
-        const saved = storageKey
-            ? sessionStorage.getItem(storageKey)
-            : null;
+        // 1. Always check sessionStorage first (covers both create and edit-mode
+        //    in-progress drafts so going back preserves unsaved changes)
+        const saved = storageKey ? sessionStorage.getItem(storageKey) : null;
+        if (saved) {
+            try { return JSON.parse(saved); } catch { /* fall through */ }
+        }
 
-        return saved
-            ? JSON.parse(saved)
-            : {
-                course_code: '',
-                course_credit: 3,
-                course_title: '',
-                pre_requisites: '',
-                co_requisites: '',
-                course_description: '',
+        // 2. Edit mode with no sessionStorage draft yet → seed from server data
+        if (isEditMode && serverStep1 && Object.keys(serverStep1).length > 0) {
+            return {
+                course_code:        serverStep1.course_code        ?? '',
+                course_credit:      serverStep1.course_credit      ?? 3,
+                course_title:       serverStep1.course_title       ?? '',
+                pre_requisites:     serverStep1.pre_requisites     ?? '',
+                co_requisites:      serverStep1.co_requisites      ?? '',
+                course_description: serverStep1.course_description ?? '',
             };
+        }
+
+        // 3. Blank defaults (create mode, no draft)
+        return {
+            course_code: '',
+            course_credit: 3,
+            course_title: '',
+            pre_requisites: '',
+            co_requisites: '',
+            course_description: '',
+        };
     });
 
     useEffect(() => {
@@ -276,10 +311,32 @@ const Step1 = () => {
 
         const validationErrors = validateStep1(data);
 
+        console.log({
+            isEditMode,
+            syllabusHash
+        });
+
         if (Object.keys(validationErrors).length > 0) {
             setLocalErrors(validationErrors);
             setAlertMessage("Please complete all required fields.");
             setAlertType("error");
+            return;
+        }
+
+        if (isEditMode && syllabusHash) {
+            // Persist sessionId and current step draft
+            if (sessionId) sessionStorage.setItem('syllabus_session_id', sessionId);
+            if (storageKey) {
+                sessionStorage.setItem(storageKey, JSON.stringify(data));
+            }
+
+            // Navigate to hashed Step 2 edit route
+            router.visit(
+                route('syllabus.step2.edit', {
+                    hash: syllabusHash,
+                })
+            );
+
             return;
         }
 
@@ -294,6 +351,8 @@ const Step1 = () => {
     };
 
     useEffect(() => {
+        // Auto-save to sessionStorage in both create AND edit mode
+        // so navigating back always restores the latest in-progress changes.
         if (!storageKey) return;
 
         const timeout = setTimeout(() => {

@@ -29,6 +29,9 @@ class Syllabus extends Model
 
         'file_name',
         'export_format',
+
+        'course_name_header',   // varchar column in syllabi table
+        'syllabus_name',        // varchar column in syllabi table
     ];
 
     /**

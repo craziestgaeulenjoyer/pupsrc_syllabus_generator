@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
+import { route } from 'ziggy-js';
 import { 
     Plus, Trash2, Calendar, Upload, FileText, X, FileDown, Edit3, BookOpen,
     ChevronLeft, ChevronRight, Award, Users, Info, CheckCircle, User,
@@ -34,25 +36,32 @@ interface Signatory {
 }
 
 const Step5 = () => {
+    // ── Inertia props (present only in edit mode) ────────────────────────────
+    const { props } = usePage<{
+        isEditMode?: boolean;
+        syllabusHash?: string;
+        step5?: {
+            classInfo?: { section: string; semester: string; time: string; room: string };
+            facultyInfo?: { name: string; consultation: string; contact: string; email: string };
+            rubrics?: any[];
+            groupCriteria?: Criterion[];
+            signatories?: Signatory[];
+        };
+    }>();
+
+    const isEditMode   = props.isEditMode   ?? false;
+    const syllabusHash = props.syllabusHash ?? null;
+    const serverStep5  = props.step5        ?? null;
+
     // --- STATE DEFINITIONS ---
     const [showPreview, setShowPreview] = useState(false);
     const [errors, setErrors] = useState<any>({});
 
     // 1. Class Information State
-    const [classInfo, setClassInfo] = useState({
-        section: '',
-        semester: '',
-        time: '',
-        room: ''
-});
+    const [classInfo, setClassInfo] = useState({ section: '', semester: '', time: '', room: '' });
 
-   // 2. Faculty Information State
-   const [facultyInfo, setFacultyInfo] = useState({
-        name: '',
-        consultation: '',
-        contact: '',
-        email: ''
-});
+    // 2. Faculty Information State
+    const [facultyInfo, setFacultyInfo] = useState({ name: '', consultation: '', contact: '', email: '' });
 
     const [rubrics, setRubrics] = useState([
         { id: 1, skills: "Contributions, Attitude", v4: "Always willing to help...", v3: "Cooperative...", v2: "Sometimes...", v1: "Seldom..." },
@@ -67,7 +76,7 @@ const Step5 = () => {
 
     const [signatories, setSignatories] = useState<Signatory[]>([
         { id: 1, role: 'Prepared by:', name: '', title: 'Faculty Member', signature: null },
-        { id: 2, role: 'Reviewed by:', name: '', title: 'Head of Academic Programs', signature: null }
+        { id: 2, role: 'Reviewed by:', name: '', title: 'Head of Academic Programs', signature: null },
     ]);
 
     // --- HANDLERS ---
@@ -182,7 +191,11 @@ const Step5 = () => {
             })
         );
 
-        window.location.href = "/syllabus-generator/step-6";
+        if (isEditMode && syllabusHash) {
+            router.visit(route('syllabus.step6.edit', { hash: syllabusHash }));
+        } else {
+            window.location.href = "/syllabus-generator/step-6";
+        }
     };
 
     const getSigError = (sigId: number, field: string) => {
@@ -220,34 +233,44 @@ const Step5 = () => {
     };
 
     useEffect(() => {
-        if (!syllabusSessionId) return;
+        if (!syllabusSessionId) {
+            // Edit mode with no sessionId in storage: seed from server
+            if (isEditMode && serverStep5) {
+                if (serverStep5.classInfo)           setClassInfo(serverStep5.classInfo);
+                if (serverStep5.facultyInfo)         setFacultyInfo(serverStep5.facultyInfo);
+                if (serverStep5.rubrics?.length)     setRubrics(serverStep5.rubrics);
+                if (serverStep5.groupCriteria?.length) setGroupCriteria(serverStep5.groupCriteria);
+                if (serverStep5.signatories?.length) setSignatories(serverStep5.signatories);
+            }
+            return;
+        }
 
         const saved = sessionStorage.getItem(`syllabus_step5_${syllabusSessionId}`);
 
         if (saved) {
-            const parsed = JSON.parse(saved);
-
-            setClassInfo(parsed.classInfo || {
-                section: '',
-                semester: '',
-                time: '',
-                room: ''
-            });
-
-            setFacultyInfo(parsed.facultyInfo || {
-                name: '',
-                consultation: '',
-                contact: '',
-                email: ''
-            });
-
-            setRubrics(parsed.rubrics || []);
-            setGroupCriteria(parsed.groupCriteria || []);
-            setSignatories(parsed.signatories || []);
+            // sessionStorage draft always takes priority (preserves in-progress edits)
+            try {
+                const parsed = JSON.parse(saved);
+                setClassInfo(parsed.classInfo || { section: '', semester: '', time: '', room: '' });
+                setFacultyInfo(parsed.facultyInfo || { name: '', consultation: '', contact: '', email: '' });
+                setRubrics(parsed.rubrics || []);
+                setGroupCriteria(parsed.groupCriteria || []);
+                setSignatories(parsed.signatories || []);
+            } catch (err) {
+                console.error("Failed to parse Step 5 session data", err);
+            }
+        } else if (isEditMode && serverStep5) {
+            // First visit in edit mode: seed from server
+            if (serverStep5.classInfo)           setClassInfo(serverStep5.classInfo);
+            if (serverStep5.facultyInfo)         setFacultyInfo(serverStep5.facultyInfo);
+            if (serverStep5.rubrics?.length)     setRubrics(serverStep5.rubrics);
+            if (serverStep5.groupCriteria?.length) setGroupCriteria(serverStep5.groupCriteria);
+            if (serverStep5.signatories?.length) setSignatories(serverStep5.signatories);
         }
     }, [syllabusSessionId]);
 
     useEffect(() => {
+        // Auto-save in both create and edit mode so navigating back preserves changes
         if (!syllabusSessionId) return;
 
         const data = {
@@ -824,7 +847,9 @@ const Step5 = () => {
                     {/* BUTTONS (RIGHT SIDE) */}
                     <div className="flex gap-2 w-full sm:w-auto justify-end">
                         <Link
-                            href="/syllabus-generator/step-4"
+                            href={isEditMode && syllabusHash
+                                ? route('syllabus.step4.edit', { hash: syllabusHash })
+                                : "/syllabus-generator/step-4"}
                             className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-[10px] sm:text-xs md:text-sm border border-slate-200 transition-all active:scale-95 whitespace-nowrap"
                         >
                             <ChevronLeft size={16} />
@@ -1013,4 +1038,4 @@ const Step5 = () => {
     );
 };
 
-export default Step5;              
+export default Step5;

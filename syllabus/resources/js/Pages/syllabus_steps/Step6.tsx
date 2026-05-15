@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import Navbar from '../navbar_layouts/Navbar'; 
 import { 
     ChevronLeft, ChevronRight, CheckCircle, FileText, 
@@ -1010,6 +1010,22 @@ const RichDocEditor: React.FC<RichDocEditorProps> = ({ label, value, onChange, p
 };
 
 const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
+    // ── Inertia props (present only in edit mode) ─────────────────────────────
+    const { props } = usePage<{
+        isEditMode?:   boolean;
+        syllabusHash?: string;
+        sessionId?:    string;
+        step1?: Record<string, any>;
+        step2?: Record<string, any>;
+        step3?: Record<string, any>;
+        step4?: Record<string, any>;
+        step5?: Record<string, any>;
+        step6?: Record<string, any>;
+    }>();
+
+    const isEditMode   = props.isEditMode   ?? false;
+    const syllabusHash = props.syllabusHash ?? null;
+
     const [isGenerating, setIsGenerating] = useState(false);
     const [exportFormat, setExportFormat] = useState('pdf');
     const [fileName, setFileName] = useState('INTE_30063_Syllabus');
@@ -1088,6 +1104,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
         return {
             syllabus_session_id: id,          // matches controller validation key
+            ...(isEditMode && syllabusHash ? { edit_hash: syllabusHash } : {}),
             course_code:  s1.course_code  || '',
             course_title: s1.course_title || '',
 
@@ -1168,9 +1185,18 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             const payload = buildFullPayload();
             if (!payload) { alert("Session expired. Please restart."); return; }
 
-            // Single request: save to DB AND stream the file back.
-            // The controller's store() method checks download=true and returns
-            // a file response instead of JSON when that flag is set.
+            // In edit mode: first save all changes via PATCH (by hash, guaranteed
+            // to hit the correct existing record), then trigger the file download
+            // via a separate POST so the blob response isn't swallowed by axios.
+            if (isEditMode && syllabusHash) {
+                // 1. Persist all edits to the existing DB record via PATCH
+                await axios.patch(
+                    `/syllabi/${syllabusHash}`,
+                    { ...payload, download: false }
+                );
+            }
+
+            // 2. Stream the file (create mode: save+download in one; edit mode: download only)
             const response = await axios.post(
                 '/syllabus-generator/save',
                 { ...payload, download: true },
@@ -1209,7 +1235,12 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         const payload = buildFullPayload();
         if (!payload) return;
         try {
-            await axios.post('/syllabus-generator/save', { ...payload, download: false });
+            if (isEditMode && syllabusHash) {
+                // Update the existing record
+                await axios.patch(`/syllabi/${syllabusHash}`, { ...payload, download: false });
+            } else {
+                await axios.post('/syllabus-generator/save', { ...payload, download: false });
+            }
             console.log("Auto-saved to DB");
         } catch (error) {
             console.error("DB Save failed:", error);
@@ -1224,15 +1255,51 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     }, [checkedItems, sessionId]);
 
     useEffect(() => {
-        const id = sessionStorage.getItem('syllabus_session_id');
+        // ── Edit mode: seed sessionStorage from the DB data the controller passed,
+        //    BUT only if sessionStorage doesn't already have a fresher draft
+        //    (i.e. the user navigated here after editing earlier steps).
+        if (isEditMode && props.sessionId) {
+            const id = props.sessionId;
 
+            const seed = (key: string, value: Record<string, any> | undefined) => {
+                const storageKey = `syllabus_${key}_${id}`;
+                // Don't overwrite an existing draft — it may be newer than the DB
+                if (!sessionStorage.getItem(storageKey) && value && Object.keys(value).length > 0) {
+                    sessionStorage.setItem(storageKey, JSON.stringify(value));
+                }
+            };
+
+            seed('step1', props.step1);
+            seed('step2', props.step2);
+            seed('step3', props.step3);
+            seed('step4', props.step4);
+            seed('step5', props.step5);
+
+            // step6 carries header/footer + export options
+            if (props.step6) {
+                const s6 = props.step6;
+                seed('step6', s6);
+                if (s6.header && !sessionStorage.getItem(`syllabus_header_${id}`)) {
+                    sessionStorage.setItem(`syllabus_header_${id}`, s6.header);
+                }
+                if (s6.footer && !sessionStorage.getItem(`syllabus_footer_${id}`)) {
+                    sessionStorage.setItem(`syllabus_footer_${id}`, s6.footer);
+                }
+            }
+
+            sessionStorage.setItem('syllabus_session_id', id);
+            setSessionId(id);
+            return;
+        }
+
+        // ── Create mode: read session id written by Step 1 ──
+        const id = sessionStorage.getItem('syllabus_session_id');
         if (!id) {
             console.warn("No syllabus_session_id found. Redirecting or fallback may be needed.");
             return;
         }
-
         setSessionId(id);
-    }, []);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!sessionId) return;

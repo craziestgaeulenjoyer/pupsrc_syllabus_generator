@@ -3,6 +3,7 @@
 use App\Http\Controllers\Authentication_Controllers\AuthController;
 use App\Http\Controllers\Authentication_Controllers\ForgotPasswordController;
 use App\Http\Controllers\Syllabi_Controllers\SyllabusController;
+use App\Http\Controllers\Syllabi_Controllers\SyllabusEditController;
 use App\Http\Controllers\Dashboard_Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -66,13 +67,21 @@ Route::middleware(['auth'])->group(function () {
 
     /* ---------------- SYLLABUS ROUTES ---------------- */
 
-    // Step Views
+    // Step Views (create mode)
     Route::get('/syllabus-generator/step-1', fn() => Inertia::render('syllabus_steps/Step1'))->name('syllabus.step1');
     Route::get('/syllabus-generator/step-2', fn() => Inertia::render('syllabus_steps/Step2'))->name('syllabus.step2');
     Route::get('/syllabus-generator/step-3', fn() => Inertia::render('syllabus_steps/Step3'))->name('syllabus.step3');
     Route::get('/syllabus-generator/step-4', fn() => Inertia::render('syllabus_steps/Step4'))->name('syllabus.step4');
     Route::get('/syllabus-generator/step-5', fn() => Inertia::render('syllabus_steps/Step5'))->name('syllabus.step5');
     Route::get('/syllabus-generator/step-6', fn() => Inertia::render('syllabus_steps/Step6'))->name('syllabus.step6');
+
+    // Step Views (edit mode — {hash} is an encrypted token, never a raw DB id)
+    Route::get('/syllabus-generator/step-1/{hash}/edit', [SyllabusEditController::class, 'editStep1'])->name('syllabus.step1.edit');
+    Route::get('/syllabus-generator/step-2/{hash}/edit', [SyllabusEditController::class, 'editStep2'])->name('syllabus.step2.edit');
+    Route::get('/syllabus-generator/step-3/{hash}/edit', [SyllabusEditController::class, 'editStep3'])->name('syllabus.step3.edit');
+    Route::get('/syllabus-generator/step-4/{hash}/edit', [SyllabusEditController::class, 'editStep4'])->name('syllabus.step4.edit');
+    Route::get('/syllabus-generator/step-5/{hash}/edit', [SyllabusEditController::class, 'editStep5'])->name('syllabus.step5.edit');
+    Route::get('/syllabus-generator/step-6/{hash}/edit', [SyllabusEditController::class, 'editStep6'])->name('syllabus.step6.edit');
 
     // Save syllabus (all steps + header/footer)
     Route::post('/syllabus-generator/save', [SyllabusController::class, 'store'])
@@ -81,6 +90,18 @@ Route::middleware(['auth'])->group(function () {
     // Alias kept for backward compatibility (older frontend references)
     Route::post('/syllabus/save', [SyllabusController::class, 'store'])
         ->name('syllabus.save.alias');
+
+    // Full update (edit — all steps re-saved)
+    Route::patch('/syllabi/{hash}', [SyllabusController::class, 'update'])
+        ->name('syllabi.update');
+
+    // Rename only (updates syllabus_name label, nothing else)
+    Route::patch('/syllabi/{hash}/rename', [SyllabusController::class, 'rename'])
+        ->name('syllabi.rename');
+
+    // Delete
+    Route::delete('/syllabi/{hash}', [SyllabusController::class, 'destroy'])
+        ->name('syllabi.destroy');
 
     /* ---------------- PDF VIEWER ROUTES ---------------- */
     Route::get('/viewer/{id}', [SyllabusController::class, 'show'])->name('syllabus.view');
