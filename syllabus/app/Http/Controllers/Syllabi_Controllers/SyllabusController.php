@@ -59,9 +59,15 @@ class SyllabusController extends Controller
             : (is_string($finalDataRaw) && $finalDataRaw !== '' ? $finalDataRaw : null);
 
         // Persist to DB
-        $syllabus = Syllabus::updateOrCreate(
-            ['session_id' => $sessionId, 'professor_id' => $professorId],
-            [
+        // ── Edit mode: if edit_hash is present, update by decoded id directly
+        //    to guarantee we hit the correct record even if session_id is null.
+        $editHash = $request->input('edit_hash');
+        if ($editHash) {
+            $decodedId = \App\Helpers\SyllabusHashId::decode($editHash);
+            $syllabus  = Syllabus::where('id', $decodedId)
+                ->where('professor_id', $professorId)
+                ->firstOrFail();
+            $syllabus->update([
                 'course_code'        => $courseCode,
                 'course_title'       => $courseTitle,
                 'course_name_header' => $courseName,
@@ -72,8 +78,25 @@ class SyllabusController extends Controller
                 'step5'              => $step5,
                 'step6'              => $step6,
                 'final_data'         => $finalData,
-            ]
-        );
+            ]);
+        } else {
+            // ── Create mode: upsert by session_id ──────────────────────────────
+            $syllabus = Syllabus::updateOrCreate(
+                ['session_id' => $sessionId, 'professor_id' => $professorId],
+                [
+                    'course_code'        => $courseCode,
+                    'course_title'       => $courseTitle,
+                    'course_name_header' => $courseName,
+                    'step1'              => $step1,
+                    'step2'              => $step2,
+                    'step3'              => $step3,
+                    'step4'              => $step4,
+                    'step5'              => $step5,
+                    'step6'              => $step6,
+                    'final_data'         => $finalData,
+                ]
+            );
+        }
 
         Log::info('Syllabus saved', [
             'session_id'  => $sessionId,
@@ -109,6 +132,130 @@ class SyllabusController extends Controller
             ], 500);
         }
     }
+
+    public function update(Request $request, string $hash)
+    {
+        $professorId = Auth::id();
+
+        if (!$professorId) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        // Decode the hash to find the actual record, enforcing ownership
+        $id       = \App\Helpers\SyllabusHashId::decode($hash);
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId)
+            ->firstOrFail();
+
+        $step1 = $this->safeJson($request->step1);
+        $step2 = $this->safeJson($request->step2);
+        $step3 = $this->safeJson($request->step3);
+        $step4 = $this->safeJson($request->step4);
+        $step5 = $this->safeJson($request->step5);
+        $step6 = $this->safeJson($request->step6);
+
+        $courseCode  = $request->course_code  ?: ($step1['course_code']  ?? '');
+        $courseTitle = $request->course_title ?: ($step1['course_title'] ?? '');
+        $courseName  = trim($step6['courseName'] ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
+
+        // final_data for text column
+        $finalDataRaw = $request->final_data;
+        $finalData = is_array($finalDataRaw)
+            ? json_encode($finalDataRaw)
+            : (is_string($finalDataRaw) && $finalDataRaw !== '' ? $finalDataRaw : null);
+
+        $syllabus->update([
+            'course_code'        => $courseCode,
+            'course_title'       => $courseTitle,
+            'course_name_header' => $courseName,
+            'step1'              => $step1,
+            'step2'              => $step2,
+            'step3'              => $step3,
+            'step4'              => $step4,
+            'step5'              => $step5,
+            'step6'              => $step6,
+            'final_data'         => $finalData,
+        ]);
+
+        Log::info('Syllabus updated via PATCH', [
+            'syllabus_id'  => $syllabus->id,
+            'professor_id' => $professorId,
+        ]);
+
+        // If download=false this is just a save (checklist auto-save or pre-export save)
+        if ($request->input('download') === false || $request->input('download') === 'false') {
+            return response()->json(['message' => 'Updated', 'id' => $syllabus->id]);
+        }
+
+        // Otherwise stream the file
+        $exportFormat = $step6['exportFormat'] ?? 'pdf';
+        $customName   = trim($step6['fileName'] ?? '');
+        $header       = $request->header ?? ($step6['header'] ?? '');
+        $footer       = $request->footer ?? ($step6['footer'] ?? '');
+        $baseName     = $customName ?: ($courseCode ?: 'syllabus');
+        $baseName     = trim(preg_replace('/[^a-zA-Z0-9_\-\. ]/', '', $baseName)) ?: 'syllabus';
+
+        try {
+            return $exportFormat === 'docx'
+                ? $this->streamDocx($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer)
+                : $this->streamPdf ($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+        } catch (\Throwable $e) {
+            Log::error('Syllabus export failed on update', [
+                'syllabus_id'  => $syllabus->id,
+                'format'       => $exportFormat,
+                'error'        => $e->getMessage(),
+            ]);
+            return response()->json([
+                'message'      => 'Syllabus saved, but file export failed.',
+                'saved'        => true,
+                'id'           => $syllabus->id,
+                'export_error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function rename(Request $request, string $hash)
+    {
+        $professorId = Auth::id();
+
+        if (!$professorId) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $id       = \App\Helpers\SyllabusHashId::decode($hash);
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'syllabus_name' => 'required|string|max:255',
+        ]);
+
+        $syllabus->update(['syllabus_name' => $validated['syllabus_name']]);
+
+        return back()->with('success', 'Syllabus renamed successfully.');
+    }
+
+    public function destroy(string $hash)
+    {
+        $professorId = Auth::id();
+
+        if (!$professorId) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $id       = \App\Helpers\SyllabusHashId::decode($hash);
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId)
+            ->firstOrFail();
+
+        $syllabus->delete();
+
+        return redirect()->route('dashboard')
+            ->with('success', 'Syllabus deleted.');
+    }
+
+    // PDF and Word functions
 
     private function streamPdf(string $baseName, string $courseCode, string $courseTitle, string $courseName,
         array $step1, array $step2, array $step3, array $step4, array $step5,

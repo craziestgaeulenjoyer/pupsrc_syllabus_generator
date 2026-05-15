@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
+import { route } from 'ziggy-js';
 import Navbar from '../navbar_layouts/Navbar'; 
 import { 
     ChevronLeft, ChevronRight, X, FileText, AlertCircle,
@@ -22,6 +24,21 @@ interface GradingComponent {
 }
 
 const Step4 = () => {
+    // ── Inertia props (present only in edit mode) ────────────────────────────
+    const { props } = usePage<{
+        isEditMode?: boolean;
+        syllabusHash?: string;
+        step4?: {
+            gradingComponents?: GradingComponent[];
+            requirements?: { id: string; text: string; clo: string }[];
+            f2fLink?: string;
+        };
+    }>();
+
+    const isEditMode   = props.isEditMode   ?? false;
+    const syllabusHash = props.syllabusHash ?? null;
+    const serverStep4  = props.step4        ?? null;
+
     const defaultGradingComponents: GradingComponent[] = [
         { 
             id: '1', 
@@ -135,19 +152,25 @@ const Step4 = () => {
         const saved = sessionStorage.getItem(storageKey);
 
         if (saved) {
+            // sessionStorage draft always takes priority (preserves in-progress edits)
             try {
                 const parsed = JSON.parse(saved);
-
                 setGradingComponents(parsed.gradingComponents?.length ? parsed.gradingComponents : defaultGradingComponents);
                 setRequirements(parsed.requirements?.length ? parsed.requirements : defaultRequirements);
                 setF2fLink(parsed.f2fLink ?? '');
             } catch (err) {
                 console.error("Failed to parse Step 4 session data", err);
             }
+        } else if (isEditMode && serverStep4) {
+            // First visit in edit mode: seed from server
+            if (serverStep4.gradingComponents?.length) setGradingComponents(serverStep4.gradingComponents);
+            if (serverStep4.requirements?.length) setRequirements(serverStep4.requirements);
+            setF2fLink(serverStep4.f2fLink ?? '');
         }
     }, []);
 
     useEffect(() => {
+        // Auto-save in both create and edit mode so navigating back preserves changes
         const timeout = setTimeout(() => {
             const dataToSave = {
                 gradingComponents,
@@ -426,18 +449,34 @@ const Step4 = () => {
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
                         <Link
-                            href="/syllabus-generator/step-3"
+                            href={isEditMode && syllabusHash
+                                ? route('syllabus.step3.edit', { hash: syllabusHash })
+                                : "/syllabus-generator/step-3"}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs sm:text-sm border border-slate-200 transition-all"
                         >
                             <ChevronLeft size={16} /> Back
                         </Link>
 
-                        <Link
-                            href="/syllabus-generator/step-5"
-                            className={`flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all ${totalPercentage === 100 ? 'bg-[#800000] text-white hover:bg-[#600000]' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
+                        <button
+                            type="button"
+                            disabled={totalPercentage !== 100}
+                            onClick={() => {
+                                // Save to sessionStorage before navigating
+                                sessionStorage.setItem(storageKey, JSON.stringify({
+                                    gradingComponents,
+                                    requirements,
+                                    f2fLink
+                                }));
+                                if (isEditMode && syllabusHash) {
+                                    router.visit(route('syllabus.step5.edit', { hash: syllabusHash }));
+                                } else {
+                                    router.visit('/syllabus-generator/step-5');
+                                }
+                            }}
+                            className={`flex-2 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-8 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all ${totalPercentage === 100 ? 'bg-[#800000] text-white hover:bg-[#600000] cursor-pointer active:scale-95' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
                         >
                             Next: Rubrics & Info <ChevronRight size={16} />
-                        </Link>
+                        </button>
                     </div>
                 </div>
             </footer>

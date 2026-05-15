@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
+import { route } from 'ziggy-js';
 import Navbar from '../navbar_layouts/Navbar'; 
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -149,6 +151,21 @@ const SortableRow = React.memo(({ row, children }: any) => {
 });
 
 const Step3 = () => {
+    // ── Inertia props (present only in edit mode) ────────────────────────────
+    const { props } = usePage<{
+        isEditMode?: boolean;
+        syllabusHash?: string;
+        step3?: {
+            obtlData?: OBTLRow[];
+            references?: { id: number; text: string }[];
+            otherReferences?: { id: number; text: string }[];
+        };
+    }>();
+
+    const isEditMode   = props.isEditMode   ?? false;
+    const syllabusHash = props.syllabusHash ?? null;
+    const serverStep3  = props.step3        ?? null;
+
     const [showPreview, setShowPreview] = useState(false);
     const [obtlData, setObtlData] = useState<OBTLRow[]>([]);
     const [showDraftSaved, setShowDraftSaved] = useState(false);
@@ -279,7 +296,11 @@ const Step3 = () => {
             otherReferences
         }));
 
-        window.location.href = "/syllabus-generator/step-4";
+        if (isEditMode && syllabusHash) {
+            router.visit(route('syllabus.step4.edit', { hash: syllabusHash }));
+        } else {
+            window.location.href = "/syllabus-generator/step-4";
+        }
     };
 
     useEffect(() => {
@@ -544,11 +565,20 @@ const Step3 = () => {
         const saved = sessionStorage.getItem(STORAGE_KEY);
 
         if (saved) {
-            const parsed = JSON.parse(saved);
-
-            setObtlData(parsed.obtlData || initialWeeklyData);
-            setReferences(parsed.references || [{ id: 1, text: '' }]);
-            setOtherReferences(parsed.otherReferences || [{ id: 1, text: '' }]);
+            // sessionStorage draft always takes priority (preserves in-progress edits)
+            try {
+                const parsed = JSON.parse(saved);
+                setObtlData(parsed.obtlData || initialWeeklyData);
+                setReferences(parsed.references || [{ id: 1, text: '' }]);
+                setOtherReferences(parsed.otherReferences || [{ id: 1, text: '' }]);
+            } catch {
+                setObtlData(initialWeeklyData);
+            }
+        } else if (isEditMode && serverStep3) {
+            // First visit in edit mode: seed from server
+            setObtlData(serverStep3.obtlData?.length ? serverStep3.obtlData : initialWeeklyData);
+            setReferences(serverStep3.references?.length ? serverStep3.references : [{ id: 1, text: '' }]);
+            setOtherReferences(serverStep3.otherReferences?.length ? serverStep3.otherReferences : [{ id: 1, text: '' }]);
         } else {
             setObtlData(initialWeeklyData);
         }
@@ -568,6 +598,7 @@ const Step3 = () => {
 
     useEffect(() => {
         if (!isHydrated) return;
+        // Auto-save in both create and edit mode so navigating back preserves changes
 
         const timeout = setTimeout(() => {
             const payload = {
@@ -973,7 +1004,9 @@ const Step3 = () => {
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
                         <Link
-                                href="/syllabus-generator/step-2"
+                                href={isEditMode && syllabusHash
+                                    ? route('syllabus.step2.edit', { hash: syllabusHash })
+                                    : "/syllabus-generator/step-2"}
                                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs sm:text-sm border border-slate-200 transition-all"
                         >
                                 <ChevronLeft size={16} /> Back

@@ -1,10 +1,12 @@
 import { FolderPen, SquarePen, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { router } from "@inertiajs/react";
+import { route } from "ziggy-js";
 
 interface FileOptionsDropdownProps {
   open: boolean;
   onClose: () => void;
-  onEdit: () => void;
+  editHash: string;        // encrypted syllabus hash — never the raw DB id
   onRename: () => void;
   onDelete: () => void;
 }
@@ -12,7 +14,7 @@ interface FileOptionsDropdownProps {
 export default function FileOptionsDropdown({
   open,
   onClose,
-  onEdit,
+  editHash,
   onRename,
   onDelete,
 }: FileOptionsDropdownProps) {
@@ -31,6 +33,11 @@ export default function FileOptionsDropdown({
 
   if (!open) return null;
 
+  const handleEdit = () => {
+    onClose();
+    router.visit(route("syllabus.step1.edit", { hash: editHash }));
+  };
+
   return (
     <div
       ref={ref}
@@ -44,10 +51,10 @@ export default function FileOptionsDropdown({
       {/* OPTIONS */}
       <div className="divide-y divide-[#c7c7c7]">
         <button
-          onClick={onEdit}
+          onClick={handleEdit}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
-          <SquarePen  color="#800000" className="w-4.5 h-4.5"/>
+          <SquarePen color="#800000" className="w-4.5 h-4.5" />
           Edit
         </button>
 
@@ -58,7 +65,7 @@ export default function FileOptionsDropdown({
           }}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
-          <FolderPen  color="#800000" className="w-4.5 h-4.5"/>
+          <FolderPen color="#800000" className="w-4.5 h-4.5" />
           Rename
         </button>
 
@@ -69,7 +76,7 @@ export default function FileOptionsDropdown({
           }}
           className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#c7c7c7] text-[#800000] font-medium text-sm"
         >
-          <Trash2 color="#800000" className="w-4.5 h-4.5"/>
+          <Trash2 color="#800000" className="w-4.5 h-4.5" />
           Delete
         </button>
       </div>

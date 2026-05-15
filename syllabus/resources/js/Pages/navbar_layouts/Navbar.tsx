@@ -16,6 +16,20 @@ const Navbar = () => {
     router.post(route("logout"));
   };
 
+  // Clear any leftover session data from a previous create/edit before starting fresh
+  const handleNewSyllabus = () => {
+    setIsOpen(false);
+
+    Object.keys(sessionStorage)
+      .filter(k => k.startsWith('syllabus_'))
+      .forEach(k => sessionStorage.removeItem(k));
+
+    const newId = crypto.randomUUID();
+    sessionStorage.setItem('syllabus_session_id', newId);
+
+    router.visit(safeRoute('syllabus.step1'));
+  };
+
   const safeRoute = (name: string) => {
     try {
       if (typeof route !== 'undefined') {
@@ -164,7 +178,7 @@ const Navbar = () => {
                     icon={<Table2 />}
                     activeIcon={<Table2 />}
                     label="Syllabus Generator" 
-                    onClick={() => setIsOpen(false)}
+                    onClick={handleNewSyllabus}
                   />
                 </div>
               </div>
