@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -30,6 +30,7 @@ const Step1 = () => {
             pre_requisites?: string;
             co_requisites?: string;
             course_description?: string;
+            course_name?: string;
         };
     }>();
 
@@ -188,6 +189,7 @@ const Step1 = () => {
     const Font = ReactQuill.Quill.import('formats/font') as any;
 
     Font.whitelist = [
+        'arial-narrow',
         'sans-serif',
         'serif',
         'monospace'
@@ -197,7 +199,7 @@ const Step1 = () => {
 
     const modules = {
         toolbar: [
-            [{ 'font': [] }],
+            [{ 'font': ['arial-narrow', 'sans-serif', 'serif', 'monospace'] }],
             ['bold', 'italic', 'underline'],
             [{ 'color': [] }],
             [{ 'align': [] }], 
@@ -205,6 +207,16 @@ const Step1 = () => {
             ['clean']
         ],
     };
+
+    const quillRef = useRef<any>(null);
+
+    // Set default font to Arial Narrow when editor mounts (only if content is empty)
+    useEffect(() => {
+        const quill = quillRef.current?.getEditor?.();
+        if (quill && !data.course_description) {
+            quill.format('font', 'arial-narrow');
+        }
+    }, []);
 
     const handleSaveDescription = () => {
         setIsSaved(true);
@@ -242,6 +254,7 @@ const Step1 = () => {
                 pre_requisites:     serverStep1.pre_requisites     ?? '',
                 co_requisites:      serverStep1.co_requisites      ?? '',
                 course_description: serverStep1.course_description ?? '',
+                course_name:        serverStep1.course_name        ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY',
             };
         }
 
@@ -253,6 +266,7 @@ const Step1 = () => {
             pre_requisites: '',
             co_requisites: '',
             course_description: '',
+            course_name: 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY',
         };
     });
 
@@ -373,11 +387,19 @@ const Step1 = () => {
                 .ql-container.ql-snow { 
                     border: none !important; 
                     height: 180px; 
-                    font-family: 'Poppins', sans-serif !important; 
+                    font-family: 'Arial Narrow', Arial, sans-serif !important; 
                 }
 
-                .ql-font-serif {
-                    font-family: Georgia, Times New Roman, serif !important;
+                /* Default editor content font */
+                .ql-editor {
+                    font-family: 'Arial Narrow', Arial, sans-serif !important;
+                    font-size: 12px;
+                    line-height: 1.7;
+                    color: black;
+                }
+
+                .ql-font-arial-narrow {
+                    font-family: 'Arial Narrow', Arial, sans-serif !important;
                 }
 
                 .ql-font-monospace {
@@ -407,6 +429,7 @@ const Step1 = () => {
                     margin: 0 auto;
                     background: white;
                     padding: 1.5rem;
+                    font-family: 'Arial Narrow', Arial, sans-serif;
                 }
 
                 .syllabus-table { 
@@ -414,24 +437,47 @@ const Step1 = () => {
                     border-collapse: collapse; 
                     table-layout: fixed; 
                     word-wrap: break-word;
+                    font-family: 'Arial Narrow', Arial, sans-serif;
                 }
+                    
                 .syllabus-table td, .syllabus-table th { 
                     border: 1px solid black; 
+                    padding: 6px 8px; 
                     padding: 8px; 
                     vertical-align: top; 
                     overflow: hidden;
+                    font-family: 'Arial Narrow', Arial, sans-serif;
                 }
+
                 .label-cell { 
-                    background-color: #fcfcfc; 
+                    background-color: #ffffff; 
                     font-weight: bold; 
                     width: 15%; 
                     text-align: center; 
-                    font-size: 10px; 
-                    text-transform: uppercase; 
+                    font-size: 9px; 
+                    text-transform: uppercase;
+                    font-family: 'Arial Narrow', Arial, sans-serif;
                 }
-                .value-cell { font-size: 11px; }
+
+                .value-cell { 
+                    font-size: 10px;
+                    font-family: 'Arial Narrow', Arial, sans-serif;
+                }
+
+                .course-info-banner {
+                    background-color: #ffffff;
+                    border: 1px solid black;
+                    font-weight: bold;
+                    text-align: center;
+                    text-transform: uppercase;
+                    padding: 5px 8px;
+                    font-size: 10px;
+                    font-family: 'Arial Narrow', Arial, sans-serif;
+                    letter-spacing: 0.5px;
+                }
+
                 .header-yellow { 
-                    background-color: #FFF9C4; 
+                    background-color: #d8d8d8; 
                     border: 1px solid black; 
                     font-weight: bold; 
                     text-align: center; 
@@ -506,6 +552,12 @@ const Step1 = () => {
                 .ql-snow .ql-picker.ql-font .ql-picker-label::before,
                 .ql-snow .ql-picker.ql-font .ql-picker-item::before {
                     content: attr(data-value);
+                }
+
+                .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="arial-narrow"]::before,
+                .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="arial-narrow"]::before {
+                    content: "Arial Narrow";
+                    font-family: 'Arial Narrow', Arial, sans-serif;
                 }
 
                 .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="sans-serif"]::before,
@@ -595,6 +647,18 @@ const Step1 = () => {
                             <h3 className="text-slate-900 font-extrabold text-lg border-b pb-3">Course Basics</h3>
                             
                             <div className="space-y-4">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] md:text-[12px] font-bold text-slate-500 uppercase ml-1">Course / Program Name: <span className="text-red-500">*</span></label>
+                                    <input
+                                        type="text"
+                                        value={data.course_name}
+                                        onChange={e => setData('course_name', e.target.value)}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#800000]"
+                                        placeholder="e.g. BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY"
+                                    />
+                                    <p className="text-[11px] text-slate-400 font-medium ml-1">This appears as the bold banner at the top of every syllabus page.</p>
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
                                         <label className="text-[10px] md:text-[12px] font-bold text-slate-500 uppercase ml-1">Course Code:</label>
@@ -668,10 +732,12 @@ const Step1 = () => {
                                     ${localErrors.course_description ? 'border-red-500' : 'border-slate-200'}`}
                                 >
                                     <ReactQuill
+                                        ref={quillRef}
                                         theme="snow"
                                         value={data.course_description}
                                         onChange={(val) => setData('course_description', val)}
                                         modules={modules}
+                                        formats={['font', 'bold', 'italic', 'underline', 'color', 'align', 'list', 'bullet', 'indent']}
                                         placeholder="Enter course description..."
                                     />
                                 </div>
@@ -739,26 +805,58 @@ const Step1 = () => {
                                 <div className="preview-container shadow-2xl font-serif text-black relative">
                                     {/* Title Section */}
                                     <div className="header-yellow mb-0">
-                                        Bachelor of Science in Information Technology <br/>
+                                        {data.course_name || 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY'} <br/>
                                         Outcomes-Based Course Syllabus
                                     </div>
 
-                                    {/* Technical Details Table */}
-                                    <table className="syllabus-table">
+                                    {/* ── Course Info Table (6-col grid) ── */}
+                                    <table className="syllabus-table" style={{tableLayout:'fixed'}}>
+                                        <colgroup>
+                                            {/* col1: label (Course Code / Course Desc / Pre-Req) */}
+                                            <col style={{width:'15%'}} />
+                                            {/* col2: course code value / pre-req value */}
+                                            <col style={{width:'14%'}} />
+                                            {/* col3: Course Title label */}
+                                            <col style={{width:'12%'}} />
+                                            {/* col4: course title value (spans into col5 for desc) */}
+                                            <col style={{width:'33%'}} />
+                                            {/* col5: Co-Req label */}
+                                            <col style={{width:'13%'}} />
+                                            {/* col6: Credit / Co-Req value */}
+                                            <col style={{width:'13%'}} />
+                                        </colgroup>
                                         <tbody>
+                                            {/* Banner */}
                                             <tr>
-                                                <td className="label-cell">Course Code</td>
-                                                <td className="value-cell font-bold" style={{width: '15%'}}>{data.course_code || '---'}</td>
-                                                <td className="label-cell">Course Title</td>
-                                                <td className="value-cell font-bold" style={{width: '40%'}}>{data.course_title || '---'}</td>
-                                                <td className="label-cell">Course Credit</td>
-                                                <td className="value-cell text-center" style={{width: '10%'}}>{data.course_credit}</td>
+                                                <td colSpan={6} style={{
+                                                    border:'1px solid black',
+                                                    fontWeight:'bold',
+                                                    textAlign:'center',
+                                                    textTransform:'uppercase',
+                                                    padding:'5px 8px',
+                                                    fontSize:'10px',
+                                                    fontFamily:"'Arial Narrow', Arial, sans-serif",
+                                                    letterSpacing:'0.5px',
+                                                }}>
+                                                    Course Information
+                                                </td>
                                             </tr>
+                                            {/* Row 1: Code | value | Title | value | Credit | value */}
                                             <tr>
-                                                <td colSpan={6} className="value-cell text-justify leading-relaxed py-4">
-                                                    <span className="font-bold uppercase block mb-1">Course Description</span>
+                                                <td className="label-cell" style={{verticalAlign:'middle'}}>Course Code</td>
+                                                <td className="value-cell font-bold">{data.course_code || '---'}</td>
+                                                <td className="label-cell" style={{verticalAlign:'middle'}}>Course Title</td>
+                                                <td className="value-cell font-bold">{data.course_title || '---'}</td>
+                                                <td className="label-cell" style={{verticalAlign:'middle'}}>Course Credit</td>
+                                                <td className="value-cell text-center">{data.course_credit}</td>
+                                            </tr>
+                                            {/* Row 2: Course Description — label + value spanning cols 2–6 */}
+                                            <tr>
+                                                <td className="label-cell" style={{verticalAlign:'middle'}}>Course Description</td>
+                                                <td colSpan={5} className="value-cell text-justify">
                                                     <div
                                                         className="ql-editor wrap-break-word"
+                                                        style={{padding:0, fontFamily:"'Arial Narrow', Arial, sans-serif", fontSize:'10px'}}
                                                         dangerouslySetInnerHTML={{
                                                             __html: DOMPurify.sanitize(
                                                                 data.course_description || 'No description provided.'
@@ -767,17 +865,22 @@ const Step1 = () => {
                                                     />
                                                 </td>
                                             </tr>
+                                            {/* Row 3: Pre-Req | value (cols 2–3) | Co-Req | value (col 6) */}
                                             <tr>
-                                                <td className="label-cell">Pre-Requisites</td>
-                                                <td colSpan={2} className="value-cell">{data.pre_requisites || 'None'}</td>
-                                                <td className="label-cell">Co-Requisites</td>
-                                                <td colSpan={2} className="value-cell">{data.co_requisites || 'None'}</td>
+                                                <td className="label-cell" style={{verticalAlign:'middle'}}>Pre-Requisites</td>
+                                                <td colSpan={3} className="value-cell">{data.pre_requisites || 'None'}</td>
+                                                <td className="label-cell" style={{verticalAlign:'middle'}}>Co-Requisites</td>
+                                                <td className="value-cell">{data.co_requisites || 'None'}</td>
                                             </tr>
                                         </tbody>
                                     </table>
 
-                                    {/* Institutional Context Table */}
-                                    <table className="syllabus-table -mt-px">
+                                    {/* ── Institutional Context Table — label col matches col1 above (15%) ── */}
+                                    <table className="syllabus-table -mt-px" style={{tableLayout:'fixed'}}>
+                                        <colgroup>
+                                            <col style={{width:'15%'}} />
+                                            <col style={{width:'85%'}} />
+                                        </colgroup>
                                         <tbody>
                                             <tr>
                                                 <td className="label-cell" style={{width: '15%'}}>VISION</td>

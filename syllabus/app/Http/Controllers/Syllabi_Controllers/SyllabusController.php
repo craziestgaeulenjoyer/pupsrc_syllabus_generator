@@ -557,25 +557,34 @@ class SyllabusController extends Controller
         // Default font
         $phpWord->setDefaultFontName('Arial Narrow');
         $phpWord->setDefaultFontSize(9);
+        $phpWord->setDefaultParagraphStyle(['spaceAfter' => 0, 'spaceBefore' => 0]);
 
         // Section = one Legal landscape page group (35.56 x 21.59 cm)
         // headerHeight/footerHeight: space reserved for real Word header/footer
-        $headerFooterH = Converter::cmToTwip(1.8);
+        $headerFooterH = (int)Converter::cmToTwip(1.8);
         $sectionStyle = [
-            'pageSizeW'      => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(35.56),
-            'pageSizeH'      => \PhpOffice\PhpWord\Shared\Converter::cmToTwip(21.59),
+            // Pass SHORT edge as W and LONG edge as H (portrait values).
+            // PhpWord swaps them internally when orientation=landscape, and
+            // also correctly writes w:orient="landscape" in the sectPr —
+            // including on the last (trailing) section. Passing W > H with
+            // landscape confuses the writer and omits the orient attribute.
+            'pageSizeW'      => (int)\PhpOffice\PhpWord\Shared\Converter::cmToTwip(21.59),
+            'pageSizeH'      => (int)\PhpOffice\PhpWord\Shared\Converter::cmToTwip(35.56),
             'orientation'    => 'landscape',
-            'marginTop'      => Converter::cmToTwip(2.5),   // enough room for header
-            'marginBottom'   => Converter::cmToTwip(2.5),   // enough room for footer
-            'marginLeft'     => Converter::cmToTwip(1.2),
-            'marginRight'    => Converter::cmToTwip(1.2),
+            'marginTop'      => (int)Converter::cmToTwip(1.5),
+            'marginBottom'   => (int)Converter::cmToTwip(1.5),
+            'marginLeft'     => (int)Converter::cmToTwip(1.2),
+            'marginRight'    => (int)Converter::cmToTwip(1.2),
             'headerHeight'   => $headerFooterH,
             'footerHeight'   => $headerFooterH,
         ];
 
         // ── Shared style constants ───────────────────────────────────────────
         // Page content width in twips: (35.56 - 1.2 - 1.2) cm = 33.16 cm
-        $pageW   = \PhpOffice\PhpWord\Shared\Converter::cmToTwip(33.16);
+        // Cast to int — PhpWord requires integer TWIP values; floats produce
+        // invalid XML (e.g. w:w="18799.37") that causes Word to silently drop
+        // every section after the first malformed table.
+        $pageW   = (int)\PhpOffice\PhpWord\Shared\Converter::cmToTwip(33.16);
         $border  = $this->docxBorder();
         $fntSm   = ['name' => 'Arial', 'size' => 8];
         $fntXSm  = ['name' => 'Arial', 'size' => 7];
@@ -795,7 +804,7 @@ class SyllabusController extends Controller
             ],
             [
                 'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
-                'spaceAfter' => 200
+                'spaceAfter' => 60
             ]
         );
 
@@ -964,64 +973,149 @@ class SyllabusController extends Controller
         $bannerCell2->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
         $bannerCell2->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 14, 'bold' => true, 'color' => 'FFFFFF'], $center);
 
+        // Checkmark safe for PhpWord (explicit UTF-8 bytes for U+2713 ✓)
+        $chk = "\xE2\x9C\x93";
+
         // PLO → ILO table
-        $sec2->addText('PROGRAM LEARNING OUTCOMES', $fntBold);
-        $sec2->addText('Based on CHED Memorandum Order (CMO) No. 25, series of 2015', $fntXSm);
+        // Two-column outer table: [vertical label] | [inner header+data table]
+        $ploSideW  = (int)($pageW * 0.05);
+        $ploInnerW = $pageW - $ploSideW;
+        $ploIloColW = (int)($ploInnerW * 0.50 / $iloCount);
+        $ploLblW    = $ploInnerW - ($ploIloColW * $iloCount);
+        $totalPloRows = count($plos) + 3; // header rows (2) + data rows + spacer header
 
-        $ploIloColW = (int)(($pageW - (int)($pageW * 0.45)) / $iloCount);
-        $ploLblW    = $pageW - ($ploIloColW * $iloCount);
-        $ploTable   = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+        $ploOuterTable = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
 
-        // Header row: label + ILO numbers
-        $ploTable->addRow(350);
-        $ploTable->addCell($ploLblW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))
-            ->addText('Program Learning Outcomes', array_merge($fntSm, ['bold' => true]));
+        // --- Header cell row 1: vertical label (rowspan simulated via vMerge) + header content ---
+        $ploOuterTable->addRow(700);
+        // Side label cell — vMerge start
+        $sideCell1 = $ploOuterTable->addCell($ploSideW, array_merge($border, [
+            'cellMargin' => $cellPad,
+            'valign'     => 'center',
+            'vMerge'     => 'restart',
+        ]));
+        $sideCell1->addText('PROGRAM LEARNING OUTCOMES (PLO)', array_merge($fntSm, ['bold' => true]), ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
+
+        // Inner header cell spanning all inner columns
+        $innerHeaderCell = $ploOuterTable->addCell($ploInnerW, array_merge($border, [
+            'gridSpan'   => 1,
+            'cellMargin' => $cellPad,
+            'valign'     => 'top',
+        ]));
+        $innerHeaderCell->addText('Based on Commission on Higher Education Memorandum Reference CMOs: CMO No. 25 s. 2015', array_merge($fntSm, ['bold' => true]));
+        $innerHeaderCell->addText('The graduates of the program have the ability to:', array_merge($fntSm, ['bold' => true]));
+
+        // We'll use a nested approach: build the inner table separately
+        // Actually, use a flat multi-column table with the side label using vMerge
+
+        // Rebuild as a proper multi-column flat table
+        // Col 0: side label (vMerge)
+        // Col 1: PLO description
+        // Cols 2..10: ILO 1-9
+
+        // Drop the outer table attempt and use a single flat table
+        unset($ploOuterTable);
+
+        $ploFlatColW  = (int)(($pageW * 0.46) / $iloCount); // each ILO col
+        $ploDescW     = (int)($pageW * 0.48);                // description col
+        $ploSideFlatW = $pageW - $ploDescW - ($ploFlatColW * $iloCount); // side label
+
+        $ploTable = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+        // Row 1: side label (vMerge restart) | header text (colspan not supported in PhpWord flat, so just text) | "Alignment to ILOs" header
+        $ploTable->addRow(600);
+        $sideCell = $ploTable->addCell($ploSideFlatW, array_merge($border, [
+            'cellMargin' => $cellPad,
+            'valign'     => 'center',
+            'vMerge'     => 'restart',
+        ]));
+        $sideCell->addText('PROGRAM LEARNING OUTCOMES (PLO)', array_merge($fntSm, ['bold' => true]), $center);
+
+        $hdrDescCell = $ploTable->addCell($ploDescW, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'top']));
+        $hdrDescCell->addText('Based on Commission on Higher Education Memorandum Reference CMOs: CMO No. 25 s. 2015', $fntSm);
+        $hdrDescCell->addText('The graduates of the program have the ability to:', array_merge($fntSm, ['bold' => true]));
+
+        // "Alignment to ILOs" spanning the ILO columns — PhpWord needs gridSpan on first cell
+        $alignIloCell = $ploTable->addCell($ploFlatColW * $iloCount, array_merge($border, [
+            'gridSpan'   => $iloCount,
+            'cellMargin' => $cellPad,
+            'valign'     => 'center',
+            'shading'    => $bgGray,
+        ]));
+        $alignIloCell->addText('Alignment to ILOs', array_merge($fntSm, ['bold' => true]), $center);
+
+        // Row 2: side (vMerge continue) | empty desc header | ILO numbers
+        $ploTable->addRow(300);
+        $ploTable->addCell($ploSideFlatW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+        $ploTable->addCell($ploDescW, array_merge($border, ['cellMargin' => $cellPad]));
         for ($n = 1; $n <= $iloCount; $n++) {
-            $c = $ploTable->addCell($ploIloColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
-            $c->addText((string)$n, array_merge($fntSm, ['bold' => true]), $center);
+            $ploTable->addCell($ploFlatColW, array_merge($border, ['cellMargin' => $cellPad, 'shading' => $bgGray]))
+                ->addText((string)$n, array_merge($fntSm, ['bold' => true]), $center);
         }
 
-        // PLO rows
-        foreach ($plos as $plo) {
+        // PLO data rows
+        foreach ($plos as $idx => $plo) {
             $pid = $plo['id'] ?? '';
             $lbl = $t($s($plo['label'] ?? ($plo['description'] ?? '')));
             $ploTable->addRow(350);
-            $ploTable->addCell($ploLblW, array_merge($border, ['cellMargin' => $cellPad]))->addText($lbl, $fntSm);
+            $ploTable->addCell($ploSideFlatW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+            $ploTable->addCell($ploDescW, array_merge($border, ['cellMargin' => $cellPad]))
+                ->addText(($idx + 1) . '. ' . $lbl, $fntSm);
             for ($n = 1; $n <= $iloCount; $n++) {
                 $checked = !empty($iloMapping["{$pid}-{$n}"]);
-                $c = $ploTable->addCell($ploIloColW, array_merge($border, ['cellMargin' => $cellPad]));
-                $c->addText($checked ? '✓' : '', array_merge($fntSm, ['bold' => true]), $center);
+                $c = $ploTable->addCell($ploFlatColW, array_merge($border, ['cellMargin' => $cellPad]));
+                $c->addText($checked ? $chk : '', array_merge($fntSm, ['bold' => true]), $center);
             }
         }
 
         // CLO → PLO table
-        $sec2->addText('COURSE LEARNING OUTCOMES', $fntBold);
-        $sec2->addText('After completion of the course, the students should be able to:', $fntSm);
-
         $ploCount   = count($plos);
-        $cloColW    = $ploCount > 0 ? (int)(($pageW * 0.55) / $ploCount) : (int)($pageW * 0.055);
-        $cloLblW    = $pageW - ($cloColW * $ploCount);
-        $cloTable   = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+        $cloFlatColW = $ploCount > 0 ? (int)(($pageW * 0.46) / $ploCount) : (int)($pageW * 0.05);
+        $cloDescW    = (int)($pageW * 0.48);
+        $cloSideW    = $pageW - $cloDescW - ($cloFlatColW * $ploCount);
 
-        // Header row
-        $cloTable->addRow(350);
-        $cloTable->addCell($cloLblW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))
-            ->addText('Course Learning Outcomes', array_merge($fntSm, ['bold' => true]));
+        $cloTable = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+        // Row 1: side label (vMerge restart) | header text | "Alignment to PLOs" spanning PLO cols
+        $cloTable->addRow(400);
+        $cloSideCell = $cloTable->addCell($cloSideW, array_merge($border, [
+            'cellMargin' => $cellPad,
+            'valign'     => 'center',
+            'vMerge'     => 'restart',
+        ]));
+        $cloSideCell->addText('COURSE LEARNING OUTCOMES (CLOs)', array_merge($fntSm, ['bold' => true]), $center);
+
+        $cloHdrCell = $cloTable->addCell($cloDescW, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'center']));
+        $cloHdrCell->addText('At the end of this course, the students are expected to:', array_merge($fntSm, ['bold' => true]));
+
+        $alignPloCell = $cloTable->addCell($cloFlatColW * $ploCount, array_merge($border, [
+            'gridSpan'   => $ploCount,
+            'cellMargin' => $cellPad,
+            'valign'     => 'center',
+            'shading'    => $bgGray,
+        ]));
+        $alignPloCell->addText('Alignment to PLOs', array_merge($fntSm, ['bold' => true]), $center);
+
+        // Row 2: side (vMerge continue) | empty | PLO numbers
+        $cloTable->addRow(300);
+        $cloTable->addCell($cloSideW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+        $cloTable->addCell($cloDescW, array_merge($border, ['cellMargin' => $cellPad]));
         foreach ($plos as $i => $plo) {
-            $c = $cloTable->addCell($cloColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
-            $c->addText((string)($i + 1), array_merge($fntSm, ['bold' => true]), $center);
+            $cloTable->addCell($cloFlatColW, array_merge($border, ['cellMargin' => $cellPad, 'shading' => $bgGray]))
+                ->addText((string)($i + 1), array_merge($fntSm, ['bold' => true]), $center);
         }
 
-        // CLO rows
+        // CLO data rows
         foreach ($clos as $clo) {
             $cid = $clo['id'] ?? '';
             $lbl = $t($s($clo['text'] ?? ($clo['description'] ?? '')));
             $cloTable->addRow(350);
-            $cloTable->addCell($cloLblW, array_merge($border, ['cellMargin' => $cellPad]))->addText($lbl, $fntSm);
+            $cloTable->addCell($cloSideW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+            $cloTable->addCell($cloDescW, array_merge($border, ['cellMargin' => $cellPad]))->addText($lbl, $fntSm);
             foreach ($plos as $plo) {
                 $pid = $plo['id'] ?? '';
                 $val = $s($ploMapping["{$cid}-{$pid}"] ?? '');
-                $c   = $cloTable->addCell($cloColW, array_merge($border, ['cellMargin' => $cellPad]));
+                $c   = $cloTable->addCell($cloFlatColW, array_merge($border, ['cellMargin' => $cellPad]));
                 $c->addText($val, array_merge($fntSm, ['bold' => true]), $center);
             }
         }
@@ -1152,7 +1246,6 @@ class SyllabusController extends Controller
 
             // References on last OBTL page — wrapped in a bordered table matching PDF
             if ($isLast) {
-                $secO->addText('');
                 $refTable = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
 
                 // NALLRC header row
@@ -1202,89 +1295,109 @@ class SyllabusController extends Controller
         $addSectionBanner($secP, 'CLASSROOM POLICIES (TO BE FILLED OUT BY THE ASSIGNED FACULTY)');
 
         $policyColW = (int)($pageW / 2);
-        $policyTable = $secP->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-        $policyTable->addRow();
 
-        // Header row inside the table (matches PDF table header row)
-        $ph1 = $policyTable->addCell($policyColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
-        $ph1->addText('FACE-TO-FACE DELIVERY', array_merge($fntSm, ['bold' => true]), $center);
-        $ph2 = $policyTable->addCell($policyColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
-        $ph2->addText('FLEXIBLE TEACHING AND LEARNING ACTIVITIES (FLTAS)', array_merge($fntSm, ['bold' => true]), $center);
-
-        $policyTable->addRow();
-        $f2fCell  = $policyTable->addCell($policyColW, array_merge($border, ['cellMargin' => $cellPad]));
-        $fltaCell = $policyTable->addCell($policyColW, array_merge($border, ['cellMargin' => $cellPad]));
-
-        // General classroom guidelines
-        $f2fCell->addText('General Classroom Guidelines:', array_merge($fntSm, ['bold' => true]));
+        // Pre-collect all F2F text lines before touching the table.
+        // PhpWord's Word2007 streaming writer flushes a row's XML the moment
+        // the next addRow() or addSection() is called. Any addText() on a
+        // cell that happens AFTER that flush is silently dropped — which is
+        // why the F2F and FLTA columns appeared empty. Fix: gather every line
+        // into arrays first, then build the table rows in one pass.
+        $f2fLines = [];
+        $f2fLines[] = ['text' => 'General Classroom Guidelines:', 'bold' => true, 'italic' => false];
         if (!empty($generalPolicies)) {
             foreach ($generalPolicies as $i => $p) {
-                $f2fCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+                $f2fLines[] = ['text' => ($i + 1) . '. ' . $t($s($p['text'] ?? '')), 'bold' => false, 'italic' => false];
             }
         } else {
-            // Default policies
+            // Default policies — matches PDF full text exactly
             foreach ([
-                'Students shall attend set contact schedule ready with all materials and outputs required.',
-                'PLAGIARISM SHALL NOT BE TOLERATED.',
-                'Requirements shall be submitted on time. Late submissions will be subjected to deductions.',
-                'Students with any form of disability must inform the course instructor immediately.',
+                'Students shall attend set contact schedule ready with all the materials and outputs required to be read, discussed, and/or submitted.',
+                'PLAGIARISM SHALL NOT BE TOLERATED. Penalties: First offense – automatic failure in the output; Second offense – automatic failure + letter from parent/guardian; Third offense – automatic failure in the course.',
+                'Requirements shall be submitted on time. Late submissions will be subjected to deductions of no less than 0.25 per day.',
+                'Students with any form of disability must inform the course instructor immediately so that alternative arrangements may be considered.',
                 'All students are expected to read and strictly observe the PUP Student Code of Conduct.',
             ] as $i => $p) {
-                $f2fCell->addText(($i + 1) . '. ' . $p, $fntSm);
+                $f2fLines[] = ['text' => ($i + 1) . '. ' . $p, 'bold' => false, 'italic' => false];
             }
         }
         if ($f2fLink) {
-            $f2fCell->addText($f2fLink, array_merge($fntSm, ['color' => '1a56db']));
+            $f2fLines[] = ['text' => $f2fLink, 'bold' => false, 'italic' => false, 'color' => '1a56db'];
         }
-        $f2fCell->addText('');
-        $f2fCell->addText('Guidelines for the face-to-face delivery:', array_merge($fntSm, ['bold' => true]));
+        $f2fLines[] = ['text' => 'Guidelines for the face-to-face delivery:', 'bold' => true, 'italic' => true];
         if (!empty($f2fPolicies)) {
             foreach ($f2fPolicies as $i => $p) {
-                $f2fCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+                $f2fLines[] = ['text' => ($i + 1) . '. ' . $t($s($p['text'] ?? '')), 'bold' => false, 'italic' => false];
             }
         } else {
             foreach ([
                 'Strictly observe the minimum health protocols set by the university.',
                 'Check your schedule on the class Facebook page before going to school.',
-                'Be mindful of your classmates and teacher\'s time.',
+                'Be mindful of your classmates and teacher\'s time. Be alert, constructive, and responsive.',
             ] as $i => $p) {
-                $f2fCell->addText(($i + 1) . '. ' . $p, $fntSm);
+                $f2fLines[] = ['text' => ($i + 1) . '. ' . $p, 'bold' => false, 'italic' => false];
             }
         }
 
-        // Sync/Async sessions
-        $fltaCell->addText('Synchronous Sessions:', array_merge($fntSm, ['bold' => true]));
+        // Pre-collect all FLTA (Sync + Async) text lines
+        $fltaLines = [];
+        $fltaLines[] = ['text' => 'Synchronous Sessions:', 'bold' => true, 'italic' => false];
         if (!empty($syncPolicies)) {
             foreach ($syncPolicies as $i => $p) {
-                $fltaCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+                $fltaLines[] = ['text' => ($i + 1) . '. ' . $t($s($p['text'] ?? '')), 'bold' => false, 'italic' => false];
             }
         } else {
             foreach ([
-                'Check your device ahead of your scheduled synchronous meeting (camera, microphone, etc.)',
+                'Check your device ahead of your scheduled synchronous meeting (camera, microphone, keyboard, speakers, etc.)',
                 'Attend the synchronous class on time.',
                 'Be ready to turn on your microphone and camera anytime.',
                 'Choose a comfortable space to attend the online class.',
-                'Click the \'raise hand\' button and wait to be acknowledged before unmuting.',
+                'Click the \'raise hand\' button and wait to be acknowledged before unmuting your microphone.',
                 'Do not abuse the chatbox.',
                 'Read the assigned materials before attending the class.',
+                'Be mindful of your classmates and teacher\'s time. Be alert, constructive, and responsive.',
             ] as $i => $p) {
-                $fltaCell->addText(($i + 1) . '. ' . $p, $fntSm);
+                $fltaLines[] = ['text' => ($i + 1) . '. ' . $p, 'bold' => false, 'italic' => false];
             }
         }
-        $fltaCell->addText('');
-        $fltaCell->addText('Asynchronous Sessions:', array_merge($fntSm, ['bold' => true]));
+        $fltaLines[] = ['text' => 'Asynchronous Sessions:', 'bold' => true, 'italic' => false];
         if (!empty($asyncPolicies)) {
             foreach ($asyncPolicies as $i => $p) {
-                $fltaCell->addText(($i + 1) . '. ' . $t($s($p['text'] ?? '')), $fntSm);
+                $fltaLines[] = ['text' => ($i + 1) . '. ' . $t($s($p['text'] ?? '')), 'bold' => false, 'italic' => false];
             }
         } else {
             foreach ([
                 'Study the sections and functions of the assigned learning management system (LMS) ahead of time.',
-                'Check the expected submission schedule at all times.',
+                'Check the expected submission schedule at all times. For some timed activities, late submission may cause deductions. For group activities, discuss the best time and platform with your groupmates.',
                 'Ask for help from your teacher(s) and classmates when necessary.',
             ] as $i => $p) {
-                $fltaCell->addText(($i + 1) . '. ' . $p, $fntSm);
+                $fltaLines[] = ['text' => ($i + 1) . '. ' . $p, 'bold' => false, 'italic' => false];
             }
+        }
+
+        // Now build the table — all content is ready, so no text is written
+        // after the next addRow() or addSection() call.
+        $policyTable = $secP->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+
+        // ROW 1 — column header row
+        $policyTable->addRow(400);
+        $ph1 = $policyTable->addCell($policyColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad, 'valign' => 'center']));
+        $ph1->addText('FACE-TO-FACE DELIVERY', array_merge($fntSm, ['bold' => true]), $center);
+        $ph2 = $policyTable->addCell($policyColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad, 'valign' => 'center']));
+        $ph2->addText('FLEXIBLE TEACHING AND LEARNING ACTIVITIES (FLTAS)', array_merge($fntSm, ['bold' => true]), $center);
+
+        // ROW 2 — content row: both cells fully populated before addSection() is called
+        $policyTable->addRow();
+        $f2fCell  = $policyTable->addCell($policyColW, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'top']));
+        foreach ($f2fLines as $line) {
+            $font = array_merge($fntSm, ['bold' => $line['bold'], 'italic' => $line['italic']]);
+            if (!empty($line['color'])) {
+                $font['color'] = $line['color'];
+            }
+            $f2fCell->addText($line['text'], $font);
+        }
+        $fltaCell = $policyTable->addCell($policyColW, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'top']));
+        foreach ($fltaLines as $line) {
+            $fltaCell->addText($line['text'], array_merge($fntSm, ['bold' => $line['bold'], 'italic' => $line['italic']]));
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -1322,7 +1435,6 @@ class SyllabusController extends Controller
             $gradCell->addText($lbl, array_merge($fntNorm, ['bold' => true]));
             if ($subs) $gradCell->addText($subs, $fntXSm);
             $gradCell->addText($pct . '%', $fntNorm);
-            $gradCell->addText('');
         }
         $gradCell->addText('TOTAL: 100%', array_merge($fntNorm, ['bold' => true]));
 
@@ -1339,6 +1451,9 @@ class SyllabusController extends Controller
 
             $addWordHF($secR, $header, $footer);
 
+            // Section banner — matches PDF .section-banner
+            $addSectionBanner($secR, 'RUBRICS FOR ASSESSMENT (TO BE FILLED OUT BY THE ASSIGNED FACULTY)');
+
             if ($isFirst) {
                 $secR->addText('Part 1. Rubrics for Assessment (to be filled out by the assigned faculty)', array_merge($fntSm, ['bold' => true]));
             } else {
@@ -1354,17 +1469,22 @@ class SyllabusController extends Controller
             $rubTable->addRow();
             $rubTable->addCell($rW, array_merge($border, ['shading' => $bgGray, 'vMerge' => 'restart', 'cellMargin' => $cellPad]))
                 ->addText('Skills', array_merge($fntSm, ['bold' => true]), $center);
-            foreach ([['4', 'Advanced'], ['3', 'Competent'], ['2', 'Progressing'], ['1', 'Beginning']] as [$num, $lbl]) {
+            foreach (['4', '3', '2', '1'] as $num) {
                 $c = $rubTable->addCell($rColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
                 $c->addText($num, array_merge($fntSm, ['bold' => true]), $center);
             }
 
-            // Header row 2 — level names
+            // Header row 2 — level names with sub-descriptions (matches Step5 preview)
             $rubTable->addRow();
             $rubTable->addCell($rW, array_merge($border, ['vMerge' => 'continue']))->addText('');
-            foreach (['Advanced', 'Competent', 'Progressing', 'Beginning'] as $lbl) {
+            foreach ([
+                'Advanced - Exceeds expectations',
+                'Competent - Meets expectations',
+                'Progressing - Does not fully meet expectations',
+                'Beginning - Does not meet expectations',
+            ] as $lbl) {
                 $c = $rubTable->addCell($rColW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
-                $c->addText($lbl, array_merge($fntSm, ['bold' => true]), $center);
+                $c->addText($lbl, array_merge($fntXSm, ['bold' => true]), $center);
             }
 
             // Rubric data rows
@@ -1378,18 +1498,25 @@ class SyllabusController extends Controller
 
             // Group grade + Class/Faculty info + Signatories on first rubric page only
             if ($isFirst) {
-                $secR->addText('');
-                $secR->addText('Part 2. Group grade', array_merge($fntSm, ['bold' => true]));
+                $secR->addText('Part 2. Group grade', array_merge($fntSm, ['bold' => true]), ['spaceBefore' => 60, 'spaceAfter' => 40]);
 
                 $groupW = [(int)($pageW * 0.65)];
                 for ($n = 0; $n < 4; $n++) $groupW[] = (int)(($pageW - $groupW[0]) / 4);
                 $groupTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
 
-                // Header
+                // Header row 1 — numbers
                 $groupTable->addRow();
-                $groupTable->addCell($groupW[0], array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))->addText('Criteria', array_merge($fntSm, ['bold' => true]));
+                $groupTable->addCell($groupW[0], array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad, 'vMerge' => 'restart', 'valign' => 'center']))->addText('Criteria', array_merge($fntSm, ['bold' => true]));
                 foreach ([1, 2, 3, 4] as $n) {
                     $groupTable->addCell($groupW[$n], array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))->addText((string)$n, array_merge($fntSm, ['bold' => true]), $center);
+                }
+
+                // Header row 2 — Poor/Fair/Good/Excellent labels
+                $groupTable->addRow();
+                $groupTable->addCell($groupW[0], array_merge($border, ['vMerge' => 'continue']))->addText('');
+                $groupLabels = ['Poor', 'Fair', 'Good', 'Excellent'];
+                foreach ($groupLabels as $li => $lbl) {
+                    $groupTable->addCell($groupW[$li + 1], array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))->addText($lbl, array_merge($fntXSm, ['bold' => true]), $center);
                 }
 
                 foreach ($groupCriteria as $i => $g) {
@@ -1404,19 +1531,8 @@ class SyllabusController extends Controller
                     }
                 }
 
-                // Class info + Faculty info
-                $secR->addText('');
+                // Class info + Faculty info — 4 individual rows matching Step5 viewer
                 $ciW = (int)($pageW / 2);
-                $ciTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-                $ciTable->addRow();
-                $ciHdr = $ciTable->addCell($ciW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
-                $ciHdr->addText('CLASS INFORMATION', array_merge($fntSm, ['bold' => true]), $center);
-                $fiHdr = $ciTable->addCell($ciW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]));
-                $fiHdr->addText('FACULTY INFORMATION', array_merge($fntSm, ['bold' => true]), $center);
-
-                $ciTable->addRow();
-                $ciBody = $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]));
-                $fiBody = $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]));
 
                 $ciSection  = $t($s($classInfo['section']  ?? ''));
                 $ciTime     = $t($s($classInfo['time']     ?? ($classInfo['schedule'] ?? '')));
@@ -1427,41 +1543,72 @@ class SyllabusController extends Controller
                 $fiContact  = $t($s($facultyInfo['contact']     ?? ($facultyInfo['office'] ?? '')));
                 $fiEmail    = $t($s($facultyInfo['email']       ?? ''));
 
-                foreach ([
-                    "Section: {$ciSection}",
-                    "Time: {$ciTime}",
-                    "Room: {$ciRoom}",
-                    "Semester: {$ciSemester}",
-                ] as $line) $ciBody->addText($line, $fntSm);
+                $ciTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
 
-                foreach ([
-                    "Name of Faculty: {$fiName}",
-                    "Consultation Time: {$fiConsult}",
-                    "Office Tel. No./ Mobile Phone No.: {$fiContact}",
-                    "Institutional Email: {$fiEmail}",
-                ] as $line) $fiBody->addText($line, $fntSm);
+                // Header row
+                $ciTable->addRow();
+                $ciTable->addCell($ciW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))
+                    ->addText('CLASS INFORMATION', array_merge($fntSm, ['bold' => true]), $center);
+                $ciTable->addCell($ciW, array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))
+                    ->addText('FACULTY INFORMATION', array_merge($fntSm, ['bold' => true]), $center);
 
-                // Signatories
-                if (!empty($signatories)) {
-                    $secR->addText('');
-                    $sigColW = (int)($pageW / max(1, count($signatories)));
-                    $sigTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-                    $sigTable->addRow();
-                    foreach ($signatories as $sig) {
-                        $sName  = $t($s($sig['name']  ?? '______________________'));
-                        $sTitle = $t($s($sig['title'] ?? ''));
-                        $sRole  = $t($s($sig['role']  ?? ''));
-                        $sCell  = $sigTable->addCell($sigColW, array_merge($border, ['cellMargin' => $cellPad]));
-                        $sCell->addText('');  // space for signature
-                        $sCell->addText('');
-                        $sCell->addText(strtoupper($sName), array_merge($fntSm, ['bold' => true]), $center);
-                        $sCell->addText($sTitle, $fntXSm, $center);
-                        $sCell->addText($sRole, array_merge($fntXSm, ['italic' => true]), $center);
-                    }
+                // Row 1: Section / Name of Faculty
+                $ciTable->addRow();
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Section: {$ciSection}", $fntSm);
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Name of Faculty: {$fiName}", $fntSm);
+
+                // Row 2: Time / Consultation Time
+                $ciTable->addRow();
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Time: {$ciTime}", $fntSm);
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Consultation Time: {$fiConsult}", $fntSm);
+
+                // Row 3: Room / Office Tel. No.
+                $ciTable->addRow();
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Room: {$ciRoom}", $fntSm);
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Office Tel. No./ Mobile Phone No.: {$fiContact}", $fntSm);
+
+                // Row 4: Semester / Institutional Email
+                $ciTable->addRow();
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Semester: {$ciSemester}", $fntSm);
+                $ciTable->addCell($ciW, array_merge($border, ['cellMargin' => $cellPad]))
+                    ->addText("Institutional Email: {$fiEmail}", $fntSm);
+
+                // Signatories — always show, use defaults if empty
+                $sigList = !empty($signatories) ? $signatories : [
+                    ['name' => '______________________', 'title' => 'Faculty Member', 'role' => 'Prepared by:'],
+                    ['name' => '______________________', 'title' => 'Head of Academic Programs', 'role' => 'Reviewed by:'],
+                ];
+                $sigColW = (int)($pageW / max(1, count($sigList)));
+                $sigTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+                $sigTable->addRow();
+                foreach ($sigList as $sig) {
+                    $sName  = $t($s($sig['name']  ?? '______________________'));
+                    $sTitle = $t($s($sig['title'] ?? ''));
+                    $sRole  = $t($s($sig['role']  ?? ''));
+                    $sCell  = $sigTable->addCell($sigColW, array_merge($border, ['cellMargin' => $cellPad]));
+                    $sCell->addText('');  // single blank line for signature space
+                    $sCell->addText(strtoupper($sName), array_merge($fntSm, ['bold' => true]), $center);
+                    $sCell->addText($sTitle, $fntXSm, $center);
+                    $sCell->addText($sRole, array_merge($fntXSm, ['italic' => true]), $center);
                 }
             }
 
         }
+
+        // Sentinel empty landscape section — PhpWord's Word2007 writer always
+        // uses the LAST section as the document-level trailing <w:sectPr> in
+        // <w:body>. Word applies that trailing sectPr as the default for the
+        // final page. By appending one extra empty section here, the last
+        // REAL content section is no longer the trailing one, so every page
+        // of actual content renders in landscape as intended.
+        $phpWord->addSection($sectionStyle);
 
         // ── Write & stream ───────────────────────────────────────────────────
         $tmpPath = tempnam(sys_get_temp_dir(), 'syllabus_') . '.docx';
@@ -1506,14 +1653,14 @@ class SyllabusController extends Controller
     /** Adds a plain data cell with one text run */
     private function docxCell(\PhpOffice\PhpWord\Element\Table $table, int $width, string $text, array $border, array $pad, array $font, array $align = []): void
     {
-        $cell = $table->addCell($width, array_merge($border, ['cellMargin' => $pad, 'noWrap' => false]));
+        $cell = $table->addCell($width, array_merge($border, ['cellMargin' => $pad]));
         $cell->addText($text ?: ' ', $font, $align ?: []);
     }
 
     /** Adds a bold label / header cell with light-gray background */
     private function docxHeaderCell(\PhpOffice\PhpWord\Element\Table $table, int $width, string $text, array $border, array $pad, array $font): void
     {
-        $cell = $table->addCell($width, array_merge($border, ['cellMargin' => $pad, 'valign' => 'center', 'noWrap' => false,
+        $cell = $table->addCell($width, array_merge($border, ['cellMargin' => $pad, 'valign' => 'center',
             'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F5F5F5']]));
         $cell->addText($text, array_merge($font, ['bold' => true]),
             ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
@@ -1557,15 +1704,15 @@ class SyllabusController extends Controller
 
         // PLO → ILO rows
         $ploIloRows = '';
-        foreach ($plos as $plo) {
+        foreach ($plos as $idx => $plo) {
             $pid  = $plo['id'] ?? '';
             $lbl  = $h($plo['label'] ?? ($plo['description'] ?? ''));
             $cells = '';
             for ($n = 1; $n <= $iloCount; $n++) {
                 $checked = !empty($iloMapping["{$pid}-{$n}"]);
-                $cells .= '<td style="border:1px solid black;text-align:center;font-weight:bold;">' . ($checked ? '✓' : '') . '</td>';
+                $cells .= '<td style="border:1px solid black;text-align:center;font-weight:bold;font-size:9pt;">' . ($checked ? '&#10003;' : '') . '</td>';
             }
-            $ploIloRows .= "<tr><td style=\"border:1px solid black;padding:4px;font-size:8pt;\">{$lbl}</td>{$cells}</tr>";
+            $ploIloRows .= "<tr><td style=\"border:1px solid black;padding:4px;font-size:8pt;\">" . ($idx + 1) . ".&nbsp;&nbsp;{$lbl}</td>{$cells}</tr>";
         }
 
         // ILO header numbers
@@ -1593,6 +1740,10 @@ class SyllabusController extends Controller
         foreach ($plos as $i => $plo) {
             $ploNums .= '<th style="border:1px solid black;width:28px;text-align:center;">' . ($i + 1) . '</th>';
         }
+
+        // Rowspan = header rows (2) + data rows
+        $ploRowspan = count($plos) + 2;
+        $cloRowspan = count($clos) + 2;
 
         // ── Step 3 ────────────────────────────────────────────────────────────
         $obtlData   = $step3['obtlData']        ?? [];
@@ -1672,7 +1823,7 @@ class SyllabusController extends Controller
                     $otherRefItems .= '<p style="margin:2px 0;">' . $h($ref['text'] ?? '') . '</p>';
                 }
                 $refsHtml = '
-                <table style="width:100%;border-collapse:collapse;border:1px solid black;margin-top:8px;font-size:8pt;">
+                <table style="width:100%;border-collapse:collapse;border:1px solid black;margin-top:4px;font-size:8pt;">
                     <tr><td style="border:1px solid black;padding:6px;font-weight:bold;text-transform:uppercase;">
                         REFERENCES FROM THE NINOY AQUINO LEARNING AND LIBRARY RESOURCES CENTER (NALLRC)<br/>OUTCOMES-BASED BOOK LISTINGS (CBBL)
                     </td></tr>
@@ -1785,21 +1936,27 @@ class SyllabusController extends Controller
                 }
 
                 $extraHtml = "
-                <p style=\"font-weight:bold;margin:8px 0 4px;\">Part 2. Group grade</p>
+                <p style=\"font-weight:bold;margin:4px 0 2px;\">Part 2. Group grade</p>
                 <table style=\"width:100%;border-collapse:collapse;border:1px solid black;font-size:8pt;\">
                     <thead>
                         <tr>
-                            <th style=\"border:1px solid black;padding:4px;\">Criteria</th>
+                            <th rowspan=\"2\" style=\"border:1px solid black;padding:4px;\">Criteria</th>
                             <th style=\"border:1px solid black;text-align:center;padding:4px;\">1</th>
                             <th style=\"border:1px solid black;text-align:center;padding:4px;\">2</th>
                             <th style=\"border:1px solid black;text-align:center;padding:4px;\">3</th>
                             <th style=\"border:1px solid black;text-align:center;padding:4px;\">4</th>
                         </tr>
+                        <tr>
+                            <th style=\"border:1px solid black;padding:4px;font-size:7pt;\">Poor</th>
+                            <th style=\"border:1px solid black;padding:4px;font-size:7pt;\">Fair</th>
+                            <th style=\"border:1px solid black;padding:4px;font-size:7pt;\">Good</th>
+                            <th style=\"border:1px solid black;padding:4px;font-size:7pt;\">Excellent</th>
+                        </tr>
                     </thead>
                     <tbody>{$groupRows}</tbody>
                 </table>
 
-                <table style=\"width:100%;border-collapse:collapse;border:1px solid black;margin-top:8px;font-size:8pt;\">
+                <table style=\"width:100%;border-collapse:collapse;border:1px solid black;margin-top:4px;font-size:8pt;\">
                     <thead>
                         <tr>
                             <th style=\"border:1px solid black;padding:6px;\">CLASS INFORMATION</th>
@@ -1824,7 +1981,7 @@ class SyllabusController extends Controller
                     </tbody>
                 </table>
 
-                <table style=\"width:100%;border-collapse:collapse;border:1px solid black;margin-top:8px;text-align:center;font-size:8pt;\">
+                <table style=\"width:100%;border-collapse:collapse;border:1px solid black;margin-top:4px;text-align:center;font-size:8pt;\">
                     <tbody>
                         <tr>{$sigRows}</tr>
                     </tbody>
@@ -1848,10 +2005,10 @@ class SyllabusController extends Controller
                             <th style="border:1px solid black;text-align:center;padding:4px;">1</th>
                         </tr>
                         <tr>
-                            <th style="border:1px solid black;padding:4px;">Advanced</th>
-                            <th style="border:1px solid black;padding:4px;">Competent</th>
-                            <th style="border:1px solid black;padding:4px;">Progressing</th>
-                            <th style="border:1px solid black;padding:4px;">Beginning</th>
+                            <th style="border:1px solid black;padding:4px;font-size:7pt;">Advanced - Exceeds expectations</th>
+                            <th style="border:1px solid black;padding:4px;font-size:7pt;">Competent - Meets expectations</th>
+                            <th style="border:1px solid black;padding:4px;font-size:7pt;">Progressing - Does not fully meet expectations</th>
+                            <th style="border:1px solid black;padding:4px;font-size:7pt;">Beginning - Does not meet expectations</th>
                         </tr>
                     </thead>
                     <tbody>' . $rubricRows . '</tbody>
@@ -1986,7 +2143,8 @@ class SyllabusController extends Controller
 <style>
   * { box-sizing: border-box; }
   body  { font-family: Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; color: #000; }
-  .page { padding: 8px 14px; }
+  p { margin: 0 0 2px 0; }
+  .page { padding: 6px 12px; }
   .custom-header {
     font-size: 8.5pt;
     line-height: 1.4;
@@ -2000,6 +2158,10 @@ class SyllabusController extends Controller
     margin-top: 4px;
     padding-top: 3px;
     border-top: 1px solid #888;
+    height: 36px !important;
+    max-height: 36px;
+    overflow: hidden;
+    display: block;
   }
   .header-yellow { background-color: #FFF9C4; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 6px; margin-bottom: 0; font-size: 9pt; }
   .syllabus-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-wrap: break-word; font-size: 8pt; }
@@ -2084,46 +2246,39 @@ class SyllabusController extends Controller
 
     <!-- PLO → ILO table -->
     <table style="width:100%;border-collapse:collapse;font-size:8pt;">
-        <tr>
-            <td style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;">PROGRAM LEARNING OUTCOMES</td>
-            <td style="border:1px solid black;padding:0;">
-                <table style="width:100%;border-collapse:collapse;font-size:8pt;">
-                    <thead>
-                        <tr>
-                            <th style="border:1px solid black;padding:6px;text-align:left;font-style:italic;font-weight:normal;width:50%;">Based on CHED Memorandum Order (CMO) No. 25, series of 2015</th>
-                            <th colspan="{$iloCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;">Alignment to ILOs</th>
-                        </tr>
-                        <tr>
-                            <th style="border:1px solid black;"></th>
-                            {$iloNums}
-                        </tr>
-                    </thead>
-                    <tbody>{$ploIloRows}</tbody>
-                </table>
-            </td>
-        </tr>
+        <tbody>
+            <tr>
+                <td rowspan="{$ploRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-lr;transform:rotate(180deg);white-space:nowrap;">PROGRAM LEARNING OUTCOMES<br/>(PLO)</td>
+                <!-- Header row 1: description cell + Alignment to ILOs spanning -->
+                <td style="border:1px solid black;padding:6px;text-align:left;width:50%;font-size:8pt;">
+                    <strong>Based on Commission on Higher Education Memorandum Reference</strong><br/>
+                    <strong>CMOs: CMO No. 25 s. 2015</strong><br/><br/>
+                    <strong>The graduates of the program have the ability to:</strong>
+                </td>
+                <th colspan="{$iloCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;">Alignment to ILOs</th>
+            </tr>
+            <tr>
+                <td style="border:1px solid black;padding:2px;"></td>
+                {$iloNums}
+            </tr>
+            {$ploIloRows}
+        </tbody>
     </table>
 
     <!-- CLO → PLO table -->
     <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-top:-1px;">
-        <tr>
-            <td style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;">COURSE LEARNING OUTCOMES</td>
-            <td style="border:1px solid black;padding:0;">
-                <table style="width:100%;border-collapse:collapse;font-size:8pt;">
-                    <thead>
-                        <tr>
-                            <th style="border:1px solid black;padding:6px;text-align:left;font-weight:bold;width:50%;">After completion of the course, the students should be able to:</th>
-                            <th colspan="{$ploCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;">Alignment to PLOs</th>
-                        </tr>
-                        <tr>
-                            <th style="border:1px solid black;"></th>
-                            {$ploNums}
-                        </tr>
-                    </thead>
-                    <tbody>{$cloPloRows}</tbody>
-                </table>
-            </td>
-        </tr>
+        <tbody>
+            <tr>
+                <td rowspan="{$cloRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-lr;transform:rotate(180deg);white-space:nowrap;">COURSE LEARNING OUTCOMES<br/>(CLOs)</td>
+                <td style="border:1px solid black;padding:6px;text-align:left;font-weight:bold;width:50%;font-size:8pt;">At the end of this course, the students are expected to:</td>
+                <th colspan="{$ploCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;">Alignment to PLOs</th>
+            </tr>
+            <tr>
+                <td style="border:1px solid black;padding:2px;"></td>
+                {$ploNums}
+            </tr>
+            {$cloPloRows}
+        </tbody>
     </table>
     <p style="font-size:7pt;margin-top:6px;font-style:italic;">Legend: L-Learned, P-Practiced, O-Opportunity to Learn</p>
     {$ftrHtml}
@@ -2157,7 +2312,7 @@ class SyllabusController extends Controller
                     <p style="margin:0 0 4px;">4. Students with any form of disability must inform the course instructor immediately so that alternative arrangements may be considered.</p>
                     <p style="margin:0 0 4px;">5. All students are expected to read and strictly observe the PUP Student Code of Conduct.</p>
                     {$f2fLinkHtml}
-                    <p style="font-weight:bold;font-style:italic;margin:8px 0 4px;">Guidelines for the face-to-face delivery:</p>
+                    <p style="font-weight:bold;font-style:italic;margin:4px 0 2px;">Guidelines for the face-to-face delivery:</p>
                     <p style="margin:0 0 4px;">1. Strictly observe the minimum health protocols set by the university.</p>
                     <p style="margin:0 0 4px;">2. Check your schedule on the class Facebook page before going to school.</p>
                     <p style="margin:0;">3. Be mindful of your classmates and teacher's time. Be alert, constructive, and responsive.</p>

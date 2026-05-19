@@ -520,7 +520,8 @@ const Step4 = () => {
                                         className="bg-white shadow-2xl relative shrink-0 
                                                    lg:w-[297mm] lg:min-h-[210mm] lg:p-[15mm]
                                                    w-full max-w-[297mm] min-h-auto p-4 sm:p-8 md:p-[10mm]
-                                                   font-serif text-black flex flex-col justify-between"
+                                                   text-black flex flex-col justify-between"
+                                        style={{fontFamily: "'Arial Narrow', Arial, sans-serif"}}
                                     >
                                         
                                         <div className="w-full">

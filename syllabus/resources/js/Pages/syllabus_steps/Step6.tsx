@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Head, Link, usePage } from '@inertiajs/react';
+import { route } from 'ziggy-js';
 import Navbar from '../navbar_layouts/Navbar'; 
 import { 
     ChevronLeft, ChevronRight, CheckCircle, FileText, 
@@ -1356,7 +1357,16 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             const saved = JSON.parse(sessionStorage.getItem(`syllabus_step6_${sessionId}`) || '{}');
             if (saved.exportFormat) setExportFormat(saved.exportFormat);
             if (saved.fileName)     setFileName(saved.fileName);
-            if (saved.courseName)   setCourseName(saved.courseName);
+
+            // course_name now lives in Step 1 — read from step1 draft first,
+            // fall back to any legacy value stored in step6 for backwards compat
+            try {
+                const step1Draft = JSON.parse(sessionStorage.getItem(`syllabus_step1_${sessionId}`) || '{}');
+                const name = step1Draft.course_name || saved.courseName || 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY';
+                setCourseName(name);
+            } catch {
+                if (saved.courseName) setCourseName(saved.courseName);
+            }
         } catch {}
 
         // Always apply the header/footer (dedicated keys are source of truth)
@@ -1658,21 +1668,6 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     </div>
 
                     <div className="p-5 md:p-8 flex flex-col gap-6 md:gap-8">
-                        {/* Course Name for Banner */}
-                        <div className="space-y-2">
-                            <label className="block text-xs font-black text-slate-700 uppercase tracking-widest">
-                                Course / Program Name <span className="text-red-500">*</span>
-                                <span className="ml-2 text-slate-400 font-normal normal-case tracking-normal text-[11px]">Used in the syllabus banner: <span className="font-semibold text-slate-600">[Course Name] OUTCOMES-BASED COURSE SYLLABUS</span></span>
-                            </label>
-                            <input
-                                type="text"
-                                value={courseName}
-                                onChange={e => setCourseName(e.target.value)}
-                                placeholder="e.g. BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY"
-                                className="w-full border-2 border-slate-200 focus:border-[#4B6333] rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none transition-all bg-slate-50 focus:bg-white"
-                            />
-                            <p className="text-[11px] text-slate-400 font-medium">This appears as the bold banner at the top of every syllabus page.</p>
-                        </div>
                         <div className="space-y-2">
                             <RichDocEditor
                                 label="Header Content *"
@@ -1810,7 +1805,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                         title: string;
                         isFirst?: boolean;
                     }) => (
-                        <div className={`flex items-center gap-3 w-full max-w-[297mm] mx-auto ${isFirst ? 'mb-3' : 'my-4'}`}>
+                        <div className={`flex items-center gap-3 w-full max-w-[860px] mx-auto ${isFirst ? 'mb-3' : 'my-4'}`}>
                             {/* Left line */}
                             <div className="flex-1 h-px bg-slate-500/40" />
                             {/* Badge */}
@@ -1836,8 +1831,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                             <style dangerouslySetInnerHTML={{ __html: `
                                 .preview-container {
                                     width: 100%;
-                                    max-width: 355.6mm;
-                                    min-width: 860px;
+                                    max-width: 860px;
                                     margin: 0 auto;
                                     background: white;
                                     padding: 1rem;
@@ -1866,19 +1860,12 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 }
                                 .value-cell { font-size: 11px; }
                                 .header-yellow {
-                                    background-color: #FFF9C4;
+                                    background-color: #d8d8d8;
                                     border: 1px solid black;
                                     font-weight: bold;
                                     text-align: center;
                                     text-transform: uppercase;
                                     padding: 10px;
-                                }
-                                @media (max-width: 640px) {
-                                    .preview-container {
-                                        transform: scale(0.4);
-                                        transform-origin: top left;
-                                        width: 250%;
-                                    }
                                 }
                                 /* ── Custom header/footer — user-designed, appears on every page ── */
                                 .syllabus-custom-header {
@@ -1952,7 +1939,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 </div>
 
                                 {/* Scrollable pages */}
-                                <div className="flex-1 overflow-auto p-4 md:p-8 bg-slate-500">
+                                <div className="flex-1 overflow-auto p-2 sm:p-4 md:p-8 bg-slate-500 flex flex-col items-center">
+                                <div className="w-full flex flex-col items-center">
+                                <div className="origin-top transition-all scale-[0.35] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.9] xl:scale-100 w-full flex flex-col items-center">
 
                                     {/* ══════════════════════════════════════════════
                                         PAGE 1 — STEP 1: Course Overview & Description
@@ -1967,34 +1956,48 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         <table className="syllabus-table" style={{tableLayout:'fixed'}}>
                                             <colgroup>
                                                 <col style={{width:'15%'}} />
-                                                <col style={{width:'15%'}} />
+                                                <col style={{width:'14%'}} />
                                                 <col style={{width:'12%'}} />
-                                                <col style={{width:'38%'}} />
-                                                <col style={{width:'12%'}} />
-                                                <col style={{width:'8%'}} />
+                                                <col style={{width:'33%'}} />
+                                                <col style={{width:'13%'}} />
+                                                <col style={{width:'13%'}} />
                                             </colgroup>
                                             <tbody>
                                                 <tr>
-                                                    <td className="label-cell">Course Code</td>
+                                                    <td colSpan={6} style={{
+                                                        border:'1px solid black',
+                                                        fontWeight:'bold',
+                                                        textAlign:'center',
+                                                        textTransform:'uppercase',
+                                                        padding:'5px 8px',
+                                                        fontSize:'10px',
+                                                        fontFamily:"'Arial Narrow', Arial, sans-serif",
+                                                        letterSpacing:'0.5px',
+                                                    }}>
+                                                        Course Information
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="label-cell" style={{verticalAlign:'middle'}}>Course Code</td>
                                                     <td className="value-cell font-bold">{courseCode}</td>
-                                                    <td className="label-cell">Course Title</td>
+                                                    <td className="label-cell" style={{verticalAlign:'middle'}}>Course Title</td>
                                                     <td className="value-cell font-bold">{courseTitle}</td>
-                                                    <td className="label-cell">Course Credit</td>
+                                                    <td className="label-cell" style={{verticalAlign:'middle'}}>Course Credit</td>
                                                     <td className="value-cell text-center">{courseCredit}</td>
                                                 </tr>
                                                 <tr>
-                                                    <td colSpan={6} className="value-cell text-justify leading-relaxed py-4">
-                                                        <span className="font-bold uppercase block mb-1">Course Description</span>
-                                                        <div className="italic break-words"
+                                                    <td className="label-cell" style={{verticalAlign:'middle'}}>Course Description</td>
+                                                    <td colSpan={5} className="value-cell text-justify">
+                                                        <div style={{fontFamily:"'Arial Narrow', Arial, sans-serif", fontSize:'10px'}}
                                                             dangerouslySetInnerHTML={{ __html: courseDescription || 'No description provided.' }}
                                                         />
                                                     </td>
                                                 </tr>
                                                 <tr>
-                                                    <td className="label-cell">Pre-Requisites</td>
-                                                    <td colSpan={2} className="value-cell">{preRequisites}</td>
-                                                    <td className="label-cell">Co-Requisites</td>
-                                                    <td colSpan={2} className="value-cell">{coRequisites}</td>
+                                                    <td className="label-cell" style={{verticalAlign:'middle'}}>Pre-Requisites</td>
+                                                    <td colSpan={3} className="value-cell">{preRequisites}</td>
+                                                    <td className="label-cell" style={{verticalAlign:'middle'}}>Co-Requisites</td>
+                                                    <td className="value-cell">{coRequisites}</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -2080,76 +2083,86 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     <PageDivider pageNum={nextPage()} step={2} title="PLO / CLO Mapping Matrix" />
                                     <div className={pageBase}>
                                         <CustomPageHeader />
+                                        <hr className="border-t-2 border-black mb-4" />
 
-                                        {/* PLO → ILO table */}
-                                        <div className="flex w-full border border-black mb-0">
-                                            <div className="w-[5%] border-r border-black flex items-center justify-center bg-white p-2 text-center">
-                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-rl] whitespace-nowrap">PROGRAM LEARNING OUTCOMES</span>
-                                            </div>
-                                            <div className="flex-1">
-                                                <table className="w-full border-collapse text-[8pt]">
-                                                    <thead>
-                                                        <tr className="border-b border-black">
-                                                            <th className="p-2 text-left font-normal italic border-r border-black w-[50%]">Based on CHED Memorandum Order (CMO) No. 25, series of 2015</th>
-                                                            <th colSpan={iloCount} className="p-1 border-b border-black text-center font-bold">Alignment to ILOs</th>
-                                                        </tr>
-                                                        <tr className="border-b border-black">
-                                                            <th className="border-r border-black"></th>
-                                                            {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
-                                                                <th key={n} className="border-r border-black last:border-0 w-8">{n}</th>
-                                                            ))}
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
+                                        {/* ── PLO → ILO table (mirrors Step2 preview exactly) ── */}
+                                        <table className="w-full border-collapse text-[8pt] mb-0" style={{tableLayout:'fixed', fontFamily:"'Arial Narrow', Arial, sans-serif"}}>
+                                            <tbody>
+                                                <tr>
+                                                    <td
+                                                        rowSpan={plos.length + 2}
+                                                        className="border border-black text-center align-middle p-1 font-bold"
+                                                        style={{width:'9%', fontSize:'7pt'}}
+                                                    >
+                                                        PROGRAM<br/>LEARNING<br/>OUTCOMES<br/>(PLO)
+                                                    </td>
+                                                    <td className="border border-black p-2 text-left align-top" style={{width:'48%', fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        <strong>Based on Commission on Higher Education Memorandum Reference</strong><br/>
+                                                        <strong>CMOs: CMO No. 25 s. 2015</strong><br/><br/>
+                                                        <strong>The graduates of the program have the ability to:</strong>
+                                                    </td>
+                                                    <td colSpan={iloCount} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        Alignment to ILOs
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
+                                                    {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
+                                                        <td key={n} className="border border-black text-center font-bold p-1" style={{width:'28px', fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{n}</td>
+                                                    ))}
+                                                </tr>
+                                                {plos.map((plo: any, idx: number) => (
+                                                    <tr key={plo.id}>
+                                                        <td className="border border-black p-1 align-top" style={{fontSize:'8pt'}}>
+                                                            {idx + 1}.&nbsp;&nbsp;{plo.label}
+                                                        </td>
+                                                        {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
+                                                            <td key={n} className="border border-black text-center font-bold p-1" style={{fontSize:'9pt'}}>
+                                                                {iloMapping[`${plo.id}-${n}`] ? '✓' : ''}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+
+                                        {/* ── CLO → PLO table (mirrors Step2 preview exactly) ── */}
+                                        <table className="w-full border-collapse text-[8pt]" style={{tableLayout:'fixed', marginTop:'-1px', fontFamily:"'Arial Narrow', Arial, sans-serif"}}>
+                                            <tbody>
+                                                <tr>
+                                                    <td
+                                                        rowSpan={clos.length + 2}
+                                                        className="border border-black text-center align-middle p-1 font-bold"
+                                                        style={{width:'9%', fontSize:'7pt'}}
+                                                    >
+                                                        COURSE<br/>LEARNING<br/>OUTCOMES<br/>(CLOs)
+                                                    </td>
+                                                    <td className="border border-black p-2 text-left font-bold align-middle" style={{width:'48%', fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        At the end of this course, the students are expected to:
+                                                    </td>
+                                                    <td colSpan={plos.length} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        Alignment to PLOs
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
+                                                    {plos.map((_: any, i: number) => (
+                                                        <td key={i} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{i + 1}</td>
+                                                    ))}
+                                                </tr>
+                                                {clos.map((clo: any) => (
+                                                    <tr key={clo.id}>
+                                                        <td className="border border-black p-1 align-top" style={{fontSize:'8pt'}}>{clo.text}</td>
                                                         {plos.map((plo: any) => (
-                                                            <tr key={plo.id} className="border-b border-black last:border-0">
-                                                                <td className="p-1 border-r border-black">{plo.label}</td>
-                                                                {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
-                                                                    <td key={n} className="border-r border-black last:border-0 text-center font-bold">
-                                                                        {iloMapping[`${plo.id}-${n}`] ? '✓' : ''}
-                                                                    </td>
-                                                                ))}
-                                                            </tr>
+                                                            <td key={plo.id} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt'}}>
+                                                                {ploMapping[`${clo.id}-${plo.id}`] || ''}
+                                                            </td>
                                                         ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
 
-                                        {/* CLO → PLO table */}
-                                        <div className="flex w-full border border-black">
-                                            <div className="w-[5%] border-r border-black flex items-center justify-center bg-white p-2 text-center">
-                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-rl] whitespace-nowrap">COURSE LEARNING OUTCOMES</span>
-                                            </div>
-                                            <div className="flex-1">
-                                                <table className="w-full border-collapse text-[8pt]">
-                                                    <thead>
-                                                        <tr className="border-b border-black">
-                                                            <th className="p-2 text-left font-bold border-r border-black w-[50%]">After completion of the course, the students should be able to:</th>
-                                                            <th colSpan={plos.length} className="p-1 border-b border-black text-center font-bold">Alignment to PLOs</th>
-                                                        </tr>
-                                                        <tr className="border-b border-black">
-                                                            <th className="border-r border-black"></th>
-                                                            {plos.map((_: any, i: number) => (
-                                                                <th key={i} className="border-r border-black last:border-0 w-8">{i + 1}</th>
-                                                            ))}
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {clos.map((clo: any) => (
-                                                            <tr key={clo.id} className="border-b border-black last:border-0">
-                                                                <td className="p-1 border-r border-black">{clo.text}</td>
-                                                                {plos.map((plo: any) => (
-                                                                    <td key={plo.id} className="border-r border-black last:border-0 text-center font-bold">
-                                                                        {ploMapping[`${clo.id}-${plo.id}`] || ''}
-                                                                    </td>
-                                                                ))}
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
                                         <p className="text-[7pt] mt-2 italic">Legend: L-Learned, P-Practiced, O-Opportunity to Learn</p>
                                         <CustomPageFooter />
                                     </div>
@@ -2487,6 +2500,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     {/* Bottom spacer */}
                                     <div className="h-8" />
 
+                                </div>{/* end scale wrapper */}
+                                </div>{/* end centering wrapper */}
                                 </div>{/* end scrollable pages */}
                             </motion.div>
                         </motion.div>
@@ -2499,7 +2514,9 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 <div className="max-w-7xl mx-auto flex justify-center sm:justify-end items-center">
                     <div className="flex gap-2 w-full sm:w-auto">
                         <Link
-                            href="/syllabus-generator/step-5"
+                            href={isEditMode && syllabusHash
+                                ? route('syllabus.step5.edit', { hash: syllabusHash })
+                                : "/syllabus-generator/step-5"}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 sm:px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs md:text-sm border border-slate-200 transition-all active:scale-95"
                         >
                             <ChevronLeft size={16} /> <span>Back</span>

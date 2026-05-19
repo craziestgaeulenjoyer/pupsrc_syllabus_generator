@@ -517,76 +517,93 @@ const Step2 = () => {
                             
                             <div className="flex-1 bg-slate-400 overflow-auto p-2 sm:p-8 flex justify-start lg:justify-center">
                                 <div className="origin-top-left scale-[0.35] min-[400px]:scale-[0.45] sm:scale-[0.6] md:scale-[0.8] lg:scale-100 transition-transform">
-                                    <div className="bg-white w-[297mm] min-h-[210mm] p-[15mm] shadow-2xl font-serif text-black leading-tight">
-                                        <hr className="border-t-2 border-black mb-6" />
+                                    <div className="bg-white w-[297mm] min-h-[210mm] p-[15mm] shadow-2xl text-black leading-tight" style={{fontFamily:"'Arial Narrow', Arial, sans-serif"}}>
+                                        <hr className="border-t-2 border-black mb-4" />
 
-                                        <div className="flex w-full border border-black mb-6">
-                                            <div className="w-[5%] border-r border-black flex items-center justify-center bg-white p-2 text-center">
-                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-lr] whitespace-nowrap">PROGRAM LEARNING OUTCOMES</span>
-                                            </div>
-                                            <div className="flex-1">
-                                                <table className="w-full border-collapse text-[8pt]">
-                                                    <thead>
-                                                        <tr className="border-b border-black">
-                                                            <th className="p-2 text-left font-normal italic border-r border-black w-[50%]">Based on CHED Memorandum Order (CMO) No. 25, series of 2015</th>
-                                                            <th colSpan={iloCount} className="p-1 border-b border-black text-center font-bold">Alignment to ILOs</th>
-                                                        </tr>
-                                                        <tr className="border-b border-black">
-                                                            <th className="border-r border-black"></th>
-                                                            {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
-                                                                <th key={n} className="border-r border-black last:border-0 w-8">{n}</th>
-                                                            ))}
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
+                                        {/* ── PLO → ILO table ── */}
+                                        <table className="w-full border-collapse text-[8pt] mb-0" style={{tableLayout:'fixed'}}>
+                                            <tbody>
+                                                {/* Row 1: side label (rowspan) | header text | "Alignment to ILOs" spanning */}
+                                                <tr>
+                                                    <td
+                                                        rowSpan={plos.length + 2}
+                                                        className="border border-black text-center align-middle p-1 font-bold"
+                                                        style={{width:'9%', fontSize:'7pt'}}
+                                                    >
+                                                        PROGRAM<br/>LEARNING<br/>OUTCOMES<br/>(PLO)
+                                                    </td>
+                                                    <td className="border border-black p-2 text-left align-top" style={{width:'48%', fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        <strong>Based on Commission on Higher Education Memorandum Reference</strong><br/>
+                                                        <strong>CMOs: CMO No. 25 s. 2015</strong><br/><br/>
+                                                        <strong>The graduates of the program have the ability to:</strong>
+                                                    </td>
+                                                    <td colSpan={iloCount} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        Alignment to ILOs
+                                                    </td>
+                                                </tr>
+                                                {/* Row 2: ILO number headers */}
+                                                <tr>
+                                                    <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
+                                                    {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
+                                                        <td key={n} className="border border-black text-center font-bold p-1" style={{width:'28px', fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{n}</td>
+                                                    ))}
+                                                </tr>
+                                                {/* PLO data rows */}
+                                                {plos.map((plo, idx) => (
+                                                    <tr key={plo.id}>
+                                                        <td className="border border-black p-1 align-top" style={{fontSize:'8pt'}}>
+                                                            {idx + 1}.&nbsp;&nbsp;{plo.label}
+                                                        </td>
+                                                        {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
+                                                            <td key={n} className="border border-black text-center font-bold p-1" style={{fontSize:'9pt'}}>
+                                                                {iloMapping[`${plo.id}-${n}`] ? '✓' : ''}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+
+                                        {/* ── CLO → PLO table ── */}
+                                        <table className="w-full border-collapse text-[8pt]" style={{tableLayout:'fixed', marginTop:'-1px'}}>
+                                            <tbody>
+                                                {/* Row 1: side label (rowspan) | header text | "Alignment to PLOs" spanning */}
+                                                <tr>
+                                                    <td
+                                                        rowSpan={clos.length + 2}
+                                                        className="border border-black text-center align-middle p-1 font-bold"
+                                                        style={{width:'9%', fontSize:'7pt'}}
+                                                    >
+                                                        COURSE<br/>LEARNING<br/>OUTCOMES<br/>(CLOs)
+                                                    </td>
+                                                    <td className="border border-black p-2 text-left font-bold align-middle" style={{width:'48%', fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        At the end of this course, the students are expected to:
+                                                    </td>
+                                                    <td colSpan={plos.length} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                        Alignment to PLOs
+                                                    </td>
+                                                </tr>
+                                                {/* Row 2: PLO number headers */}
+                                                <tr>
+                                                    <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
+                                                    {plos.map((_, i) => (
+                                                        <td key={i} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{i + 1}</td>
+                                                    ))}
+                                                </tr>
+                                                {/* CLO data rows */}
+                                                {clos.map(clo => (
+                                                    <tr key={clo.id}>
+                                                        <td className="border border-black p-1 align-top" style={{fontSize:'8pt'}}>{clo.text}</td>
                                                         {plos.map(plo => (
-                                                            <tr key={plo.id} className="border-b border-black last:border-0">
-                                                                <td className="p-1 border-r border-black">{plo.label}</td>
-                                                                {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
-                                                                    <td key={n} className="border-r border-black last:border-0 text-center font-bold">
-                                                                        {iloMapping[`${plo.id}-${n}`] ? '✓' : ''}
-                                                                    </td>
-                                                                ))}
-                                                            </tr>
+                                                            <td key={plo.id} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt'}}>
+                                                                {ploMapping[`${clo.id}-${plo.id}`] || ''}
+                                                            </td>
                                                         ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
 
-                                        <div className="flex w-full border border-black">
-                                            <div className="w-[5%] border-r border-black flex items-center justify-center bg-white p-2 text-center">
-                                                <span className="font-bold text-[8pt] rotate-180 [writing-mode:vertical-lr] whitespace-nowrap">COURSE LEARNING OUTCOMES</span>
-                                            </div>
-                                            <div className="flex-1">
-                                                <table className="w-full border-collapse text-[8pt]">
-                                                    <thead>
-                                                        <tr className="border-b border-black">
-                                                            <th className="p-2 text-left font-bold border-r border-black w-[50%]">After completion of the course, the students should be able to:</th>
-                                                            <th colSpan={plos.length} className="p-1 border-b border-black text-center font-bold">Alignment to PLOs</th>
-                                                        </tr>
-                                                        <tr className="border-b border-black">
-                                                            <th className="border-r border-black"></th>
-                                                            {plos.map((_, i) => (
-                                                                <th key={i} className="border-r border-black last:border-0 w-8">{i + 1}</th>
-                                                            ))}
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {clos.map(clo => (
-                                                            <tr key={clo.id} className="border-b border-black last:border-0">
-                                                                <td className="p-1 border-r border-black">{clo.text}</td>
-                                                                {plos.map(plo => (
-                                                                    <td key={plo.id} className="border-r border-black last:border-0 text-center font-bold">
-                                                                        {ploMapping[`${clo.id}-${plo.id}`] || ''}
-                                                                    </td>
-                                                                ))}
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
                                         <p className="text-[7pt] mt-2 italic">Legend: L-Learned, P-Practiced, O-Opportunity to Learn</p>
                                     </div>
                                 </div>

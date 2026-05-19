@@ -215,7 +215,7 @@ const Step3 = () => {
         const midterms = obtlData.filter(r => r.type === 'midterm');
         const finals = obtlData.filter(r => r.type === 'final');
 
-        const totalWeeks = obtlData.length;
+        const totalWeeks = countTotalWeekSlots(obtlData);
 
         if (midterms.length > 1 || finals.length > 1) {
             setAlert({
@@ -233,9 +233,35 @@ const Step3 = () => {
             return false;
         }
 
+        // Validate all week range inputs — reject descending ranges like "5-3"
+        for (const row of obtlData) {
+            if (row.type === 'regular') {
+                const rangeMatch = (row.weeks || '').trim().match(/^(\d+)-(\d+)$/);
+                if (rangeMatch) {
+                    const start = parseInt(rangeMatch[1]);
+                    const end = parseInt(rangeMatch[2]);
+                    if (end <= start) {
+                        setAlert({
+                            message: `Invalid week range "${row.weeks}": the end week must be greater than the start (e.g. 3-5, not 5-3).`,
+                            type: 'error'
+                        });
+                        return false;
+                    }
+                }
+            }
+        }
+
+        if (totalWeeks > 18) {
+            setAlert({
+                message: `Your week ranges total ${totalWeeks} weeks but the cap is 18. Adjust your ranges.`,
+                type: 'error'
+            });
+            return false;
+        }
+
         if (totalWeeks !== 18) {
             setAlert({
-                message: `You must have exactly 18 total rows (including exams). Currently: ${totalWeeks}.`,
+                message: `You must have exactly 18 total weeks (including exams). Currently: ${totalWeeks}.`,
                 type: 'error'
             });
             return false;
@@ -315,7 +341,7 @@ const Step3 = () => {
 
     const handleCellChange = (id: number, field: string, value: string) => {
         const container = containerRef.current;
-        const scrollTop = container?.scrollTop; // SAVE scroll position
+        const scrollTop = container?.scrollTop;
 
         setObtlData(prev => {
             const updated = [...prev];
@@ -331,7 +357,6 @@ const Step3 = () => {
             return updated;
         });
 
-        // RESTORE scroll AFTER render
         requestAnimationFrame(() => {
             if (container && scrollTop !== undefined) {
                 container.scrollTop = scrollTop;
@@ -339,10 +364,17 @@ const Step3 = () => {
         });
     };
 
+    // On blur of a weeks input, just realign order silently (no validation alerts)
+    const handleWeeksBlur = () => {
+        setObtlData(prev => sortByWeek(reindexWeeks(enforceExamOrder(prev))));
+    };
+
     const addRow = (type: 'regular' | 'midterm' | 'final' = 'regular') => {
-        if (obtlData.length >= 18) {
+        const currentSlots = countTotalWeekSlots(obtlData);
+
+        if (currentSlots >= 18) {
             setAlert({
-                message: 'You already have 18 weeks (including exams). You cannot add more.',
+                message: 'You already have 18 weeks covered (including exams). You cannot add more.',
                 type: 'error'
             });
             return;
@@ -358,20 +390,10 @@ const Step3 = () => {
             return;
         }
 
-        const regularCount = obtlData.filter(r => r.type === 'regular').length;
-
-        if (type === 'regular' && regularCount >= 16) {
-            setAlert({
-                message: 'Maximum of 16 regular weeks reached (Week 9 and 18 are reserved for exams).',
-                type: 'error'
-            });
-            return;
-        }
-
         const newRow: OBTLRow = {
             id: Date.now(),
             type,
-            weeks: '', // always empty initially
+            weeks: '',
             dlo: type !== 'regular' ? 'Examination Period' : '',
             clo: '',
             topics:
@@ -517,28 +539,31 @@ const Step3 = () => {
         });
     };
 
+    // Parse how many week-slots a weeks string occupies (e.g. "3-5" → 3, "7" → 1)
+    const parseWeekSpan = (weeksStr: string): number => {
+        const trimmed = (weeksStr || '').trim();
+        const rangeMatch = trimmed.match(/^(\d+)-(\d+)$/);
+        if (rangeMatch) {
+            const start = parseInt(rangeMatch[1]);
+            const end = parseInt(rangeMatch[2]);
+            if (end > start) return end - start + 1;
+            return 1;
+        }
+        return 1;
+    };
+
+    // Count total week slots consumed by the current data (including exam slots)
+    const countTotalWeekSlots = (data: OBTLRow[]): number => {
+        return data.reduce((sum, row) => {
+            if (row.type === 'regular') return sum + parseWeekSpan(row.weeks);
+            return sum + 1; // midterm and final each take 1 slot
+        }, 0);
+    };
+
     const reindexWeeks = (data: OBTLRow[]) => {
         let counter = 1;
 
         return data.map(row => {
-            if (row.type === 'regular') {
-
-                // Skip week 9 (midterm slot)
-                if (counter === 9) counter++;
-
-                // Stop at 17 (18 is final)
-                if (counter > 17) counter = 17;
-
-                const updatedRow = {
-                    ...row,
-                    weeks: counter.toString()
-                };
-
-                counter++;
-                return updatedRow;
-            }
-
-            // Force exam positions
             if (row.type === 'midterm') {
                 return { ...row, weeks: '9' };
             }
@@ -547,7 +572,17 @@ const Step3 = () => {
                 return { ...row, weeks: '18' };
             }
 
-            return row;
+            // regular row — preserve span but realign start, skipping week 9 and 18
+            const span = parseWeekSpan(row.weeks);
+            if (counter === 9) counter++;  // skip midterm slot
+            if (counter === 18) counter++; // skip final slot
+
+            const start = counter;
+            const end = start + span - 1;
+            counter = end + 1;
+
+            const newWeeks = span > 1 ? `${start}-${end}` : `${start}`;
+            return { ...row, weeks: newWeeks };
         });
     };
 
@@ -686,7 +721,7 @@ const Step3 = () => {
                         <div className="flex gap-2 w-full sm:w-auto">
                             <button
                                 onClick={() => addRow('midterm')}
-                                disabled={hasMidterm || obtlData.length >= 18}
+                                disabled={hasMidterm || countTotalWeekSlots(obtlData) >= 18}
                                 className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all
                                 ${hasMidterm
                                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
@@ -698,7 +733,7 @@ const Step3 = () => {
 
                             <button
                                 onClick={() => addRow('final')}
-                                disabled={hasFinal || obtlData.length >= 18}
+                                disabled={hasFinal || countTotalWeekSlots(obtlData) >= 18}
                                 className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-[10px] font-bold shadow-sm flex items-center justify-center gap-1.5 transition-all
                                 ${hasFinal
                                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
@@ -774,13 +809,15 @@ const Step3 = () => {
                                                             <input 
                                                                 type="text"
                                                                 value={row.weeks}
-                                                                readOnly={false}
-                                                                onChange={(e) => handleCellChange(row.id, 'weeks', e.target.value)}
-                                                                className={`w-10 h-10 md:w-12 md:h-12 rounded-lg text-center font-black text-sm focus:ring-2 focus:ring-[#800000] ${
+                                                                readOnly={row.type !== 'regular'}
+                                                                onChange={(e) => row.type === 'regular' ? handleCellChange(row.id, 'weeks', e.target.value) : undefined}
+                                                                onBlur={row.type === 'regular' ? handleWeeksBlur : undefined}
+                                                                placeholder="e.g. 3 or 3-5"
+                                                                className={`w-16 md:w-20 h-10 px-2 rounded-lg text-center font-black text-sm focus:ring-2 focus:ring-[#800000] ${
                                                                     row.type !== 'regular'
                                                                         ? row.type === 'midterm'
-                                                                            ? 'bg-amber-200 text-amber-900 cursor-not-allowed'
-                                                                            : 'bg-red-200 text-red-900 cursor-not-allowed'
+                                                                            ? 'bg-amber-200 text-amber-900 cursor-not-allowed select-none'
+                                                                            : 'bg-red-200 text-red-900 cursor-not-allowed select-none'
                                                                         : 'bg-slate-100 text-slate-700'
                                                                 }`}
                                                             />
@@ -868,10 +905,10 @@ const Step3 = () => {
 
                     <button
                         onClick={() => addRow('regular')}
-                        disabled={obtlData.length >= 18}
+                        disabled={countTotalWeekSlots(obtlData) >= 18}
                         className={`w-full py-6 md:py-8 border-t border-dashed border-slate-200 font-bold flex items-center justify-center gap-2 transition-all group text-xs md:text-sm
                         ${
-                            obtlData.length >= 18
+                            countTotalWeekSlots(obtlData) >= 18
                                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
                                 : 'text-slate-400 hover:text-[#800000] hover:bg-slate-50 cursor-pointer'
                         }`}
@@ -1042,7 +1079,7 @@ const Step3 = () => {
                             
                             <div className="flex-1 bg-slate-600 overflow-auto p-2 md:p-8 flex flex-col items-center gap-4 md:gap-8 scrollbar-thin scrollbar-thumb-white/20">
                                 {paginatedData.map((pageRows, pageIdx) => (
-                                    <div key={pageIdx} className="bg-white shadow-2xl origin-top scale-[0.35] sm:scale-[0.5] md:scale-[0.7] lg:scale-100 transition-transform w-[297mm] min-h-[210mm] p-[15mm] font-serif text-black flex flex-col justify-between relative shrink-0">
+                                    <div key={pageIdx} className="bg-white shadow-2xl origin-top scale-[0.35] sm:scale-[0.5] md:scale-[0.7] lg:scale-100 transition-transform w-[297mm] min-h-[210mm] p-[15mm] text-black flex flex-col justify-between relative shrink-0" style={{fontFamily: "'Arial Narrow', Arial, sans-serif"}}>
                                         <div>
                                             <hr className="border-t-2 border-black mb-4" />
                                             {pageIdx === 0 && <h2 className="font-bold text-[11pt] mb-4 uppercase text-center w-full">OUTCOMES-BASED TEACHING AND LEARNING PLAN</h2>}
@@ -1061,21 +1098,21 @@ const Step3 = () => {
                                                     </colgroup>
                                                     {pageIdx === 0 && (
                                                         <thead>
-                                                            <tr className="border-b border-black bg-slate-50 ">
-                                                                <th className="p-2 border-r border-black w-[6%] font-bold text-center bg-[#ffe8e8]" rowSpan={3}>Weeks (18 Weeks)</th>
-                                                                <th className="p-2 border-r border-black w-[18%] font-bold text-center bg-[#ffe8e8]" rowSpan={3}>Learning Outcomes (DLOs) </th>
-                                                                <th className="p-2 border-r border-black w-[12%] font-bold text-center bg-[#ffe8e8]" rowSpan={3}>Alignment to (CLOs)</th>
-                                                                <th className="p-2 border-r border-black w-[15%] font-bold text-center bg-[#ffe8e8] " rowSpan={3}>Learning Content/Topics</th>
-                                                                <th className="p-1 border-b border-black font-bold text-center bg-[#ffe8e8]" colSpan={3}>Instructional Delivery Design</th>
-                                                                <th className="p-2 border-l border-black w-[15%] font-bold text-center bg-[#ffe8e8]" rowSpan={3}>Assessment Tasks (TAs)</th>
+                                                            <tr className="border-b border-black">
+                                                                <th className="p-2 border-r border-black w-[6%] font-bold text-center" style={{backgroundColor:'#d6d6d6'}} rowSpan={3}>Weeks (18)</th>
+                                                                <th className="p-2 border-r border-black w-[18%] font-bold text-center" style={{backgroundColor:'#d6d6d6'}} rowSpan={3}>Desired Learning Outcomes (DLOs)</th>
+                                                                <th className="p-2 border-r border-black w-[12%] font-bold text-center" style={{backgroundColor:'#d6d6d6'}} rowSpan={3}>Alignment to CLOs</th>
+                                                                <th className="p-2 border-r border-black w-[15%] font-bold text-center" style={{backgroundColor:'#d6d6d6'}} rowSpan={3}>Learning Content/Topics</th>
+                                                                <th className="p-1 border-b border-r border-black font-bold text-center" style={{backgroundColor:'#d6d6d6'}} colSpan={3}>Instructional Delivery Design</th>
+                                                                <th className="p-2 border-l border-black w-[15%] font-bold text-center" style={{backgroundColor:'#d6d6d6'}} rowSpan={3}>Assessment Tasks (TAs)</th>
                                                             </tr>
-                                                            <tr className="border-b border-black bg-slate-50">
-                                                                <th className="p-1 border-r border-black w-[10%] font-bold text-center bg-[#e8f4ff]" rowSpan={2}>Face-to-Face</th>
-                                                                <th className="p-0.5 border-b border-black font-bold text-center bg-[#e8f4ff]" colSpan={2}>Flexible Learning and Teaching Activities (FLTAs) </th>
+                                                            <tr className="border-b border-black">
+                                                                <th className="p-1 border-r border-black w-[10%] font-bold text-center" style={{backgroundColor:'#d6d6d6'}} rowSpan={2}>Face-to-Face</th>
+                                                                <th className="p-0.5 border-b border-black font-bold text-center" style={{backgroundColor:'#d6d6d6'}} colSpan={2}>Flexible Learning and Teaching Activities (FLTAs)</th>
                                                             </tr>
-                                                            <tr className="border-b border-black bg-slate-50">
-                                                                <th className="p-1 border-r border-black w-[10%] font-bold text-center text-[7pt] bg-[#e8f4ff]">Synchronous</th>
-                                                                <th className="p-1 w-[10%] font-bold text-center text-[7pt] bg-[#e8f4ff]">Asynchronous</th>
+                                                            <tr className="border-b border-black">
+                                                                <th className="p-1 border-r border-black w-[10%] font-bold text-center text-[7pt]" style={{backgroundColor:'#d6d6d6'}}>Synchronous</th>
+                                                                <th className="p-1 w-[10%] font-bold text-center text-[7pt]" style={{backgroundColor:'#d6d6d6'}}>Asynchronous</th>
                                                             </tr>
                                                         </thead>
                                                     )}
@@ -1094,9 +1131,12 @@ const Step3 = () => {
                                                                         <td className="p-2 whitespace-pre-wrap">{row.tasks}</td>
                                                                     </>
                                                                 ) : (
-                                                                    <td colSpan={8} className="p-3 bg-amber-50 text-center font-bold text-[9pt] border-b border-black">
-                                                                        {row.topics}
-                                                                    </td>
+                                                                    <>
+                                                                        <td className="p-2 border-r border-black text-center font-bold" style={{backgroundColor:'#d6d6d6'}}>{row.weeks}</td>
+                                                                        <td colSpan={7} className="p-3 text-center font-bold text-[9pt]" style={{backgroundColor:'#d6d6d6'}}>
+                                                                            {row.topics}
+                                                                        </td>
+                                                                    </>
                                                                 )}
                                                             </tr>
                                                         ))}

@@ -904,41 +904,42 @@ const Step5 = () => {
 
                                             <div
                                                 key={pageIdx}
-                                                className="w-[297mm] h-[210mm] bg-white p-[10mm] text-black font-serif shadow-xl text-[8pt] leading-tight flex flex-col justify-between"
+                                                className="w-[297mm] h-[210mm] bg-white p-[10mm] text-black shadow-xl text-[8pt] leading-tight flex flex-col justify-between"
+                                                style={{fontFamily: "'Arial Narrow', Arial, sans-serif"}}
                                             >
                                                 <div>
                                                     <hr className="border-black border"/>
 
                                                     {/* RUBRICS */}
-                                                    <p className="mt-2 font-bold text-center">
+                                                    <p className="mt-2 font-bold text-center border border-black p-1">
                                                         Rubrics for Assessment (to be filled out by the assigned faculty)
                                                     </p>
 
-                                                    <table className="w-full border border-black border-collapse mt-1">
+                                                    <table className="w-full border border-black border-collapse mt-0" style={{borderTop:'none'}}>
                                                         <thead>
                                                             <tr>
-                                                                <th rowSpan={2} className="border w-[20%]">Skills</th>
-                                                                <th className="border text-center">4</th>
-                                                                <th className="border text-center">3</th>
-                                                                <th className="border text-center">2</th>
-                                                                <th className="border text-center">1</th>
+                                                                <th rowSpan={2} className="border border-black text-center p-1 w-[15%]" style={{fontSize:'7pt'}}>Skills</th>
+                                                                <th className="border border-black text-center p-0.5" style={{fontSize:'7pt'}}>4</th>
+                                                                <th className="border border-black text-center p-0.5" style={{fontSize:'7pt'}}>3</th>
+                                                                <th className="border border-black text-center p-0.5" style={{fontSize:'7pt'}}>2</th>
+                                                                <th className="border border-black text-center p-0.5" style={{fontSize:'7pt'}}>1</th>
                                                             </tr>
                                                             <tr>
-                                                                <th className="border">Advanced</th>
-                                                                <th className="border">Competent</th>
-                                                                <th className="border">Progressing</th>
-                                                                <th className="border">Beginning</th>
+                                                                <th className="border border-black p-0.5 text-center" style={{fontSize:'7pt'}}>Advanced - Exceeds expectations</th>
+                                                                <th className="border border-black p-0.5 text-center" style={{fontSize:'7pt'}}>Competent - Meets expectations</th>
+                                                                <th className="border border-black p-0.5 text-center" style={{fontSize:'7pt'}}>Progressing - Does not fully meet expectations</th>
+                                                                <th className="border border-black p-0.5 text-center" style={{fontSize:'7pt'}}>Beginning - Does not meet expectations</th>
                                                             </tr>
                                                         </thead>
 
                                                         <tbody>
                                                             {(pageRubrics as any[]).map((r) => (
                                                                 <tr key={r.id}>
-                                                                    <td className="border font-bold">{r.skills}</td>
-                                                                    <td className="border">{r.v4}</td>
-                                                                    <td className="border">{r.v3}</td>
-                                                                    <td className="border">{r.v2}</td>
-                                                                    <td className="border">{r.v1}</td>
+                                                                    <td className="border border-black p-1 font-bold text-center" style={{fontSize:'7pt'}}>{r.skills}</td>
+                                                                    <td className="border border-black p-1" style={{fontSize:'7pt'}}>{r.v4}</td>
+                                                                    <td className="border border-black p-1" style={{fontSize:'7pt'}}>{r.v3}</td>
+                                                                    <td className="border border-black p-1" style={{fontSize:'7pt'}}>{r.v2}</td>
+                                                                    <td className="border border-black p-1" style={{fontSize:'7pt'}}>{r.v1}</td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
@@ -947,28 +948,27 @@ const Step5 = () => {
                                                     {/* GROUP GRADE  */}
                                                     {pageIdx === 0 && (
                                                         <>
-                                                            <p className="mt-2 font-bold">Part 2. Group grade</p>
+                                                            <p className="mt-2 font-bold" style={{fontSize:'7pt'}}>Part 2. Group grade</p>
 
                                                             <table className="w-full border border-black border-collapse">
                                                                 <thead>
                                                                     <tr>
-                                                                        <th className="border">Criteria</th>
-                                                                        <th className="border">1</th>
-                                                                        <th className="border">2</th>
-                                                                        <th className="border">3</th>
-                                                                        <th className="border">4</th>
+                                                                        <th className="border border-black p-1 w-[55%]" style={{fontSize:'7pt'}}>Criteria</th>
+                                                                        <th className="border border-black p-1 text-center" style={{fontSize:'7pt'}}>1<br/>Poor</th>
+                                                                        <th className="border border-black p-1 text-center" style={{fontSize:'7pt'}}>2<br/>Fair</th>
+                                                                        <th className="border border-black p-1 text-center" style={{fontSize:'7pt'}}>3<br/>Good</th>
+                                                                        <th className="border border-black p-1 text-center" style={{fontSize:'7pt'}}>4<br/>Excellent</th>
                                                                     </tr>
                                                                 </thead>
 
                                                                 <tbody>
                                                                     {groupCriteria.map((g, i) => (
                                                                         <tr key={g.id}>
-                                                                            <td className="border">
+                                                                            <td className="border border-black p-1" style={{fontSize:'7pt'}}>
                                                                                 {i + 1}. {g.label} ({g.weight}%)
                                                                             </td>
-
                                                                             {[1,2,3,4].map((n) => (
-                                                                                <td key={n} className="border text-center">
+                                                                                <td key={n} className="border border-black text-center p-1" style={{fontSize:'7pt'}}>
                                                                                     {g.score === n ? "✔" : ""}
                                                                                 </td>
                                                                             ))}
@@ -981,26 +981,26 @@ const Step5 = () => {
                                                             <table className="w-full border border-black border-collapse mt-2">
                                                                 <thead>
                                                                     <tr>
-                                                                        <th className="border">CLASS INFORMATION</th>
-                                                                        <th className="border">FACULTY INFORMATION</th>
+                                                                        <th className="border border-black p-1 text-center w-1/2" style={{fontSize:'7pt', backgroundColor:'#d6d6d6'}}>CLASS INFORMATION</th>
+                                                                        <th className="border border-black p-1 text-center w-1/2" style={{fontSize:'7pt', backgroundColor:'#d6d6d6'}}>FACULTY INFORMATION</th>
                                                                     </tr>
                                                                 </thead>
-
                                                                 <tbody>
                                                                     <tr>
-                                                                        <td className="border p-1">
-                                                                            Section: {classInfo.section}<br/>
-                                                                            Time: {classInfo.time}<br/>
-                                                                            Room: {classInfo.room}<br/>
-                                                                            Semester: {classInfo.semester}
-                                                                        </td>
-
-                                                                        <td className="border p-1">
-                                                                            Name of Faculty: {facultyInfo.name}<br/>
-                                                                            Consultation Time: {facultyInfo.consultation}<br/>
-                                                                            Office Tel. No./ Mobile Phone No.:{facultyInfo.contact}<br/>
-                                                                            Institutional Email: {facultyInfo.email}
-                                                                        </td>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Section: {classInfo.section}</td>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Name of Faculty: {facultyInfo.name}</td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Time: {classInfo.time}</td>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Consultation Time: {facultyInfo.consultation}</td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Room: {classInfo.room}</td>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Office Tel. No./ Mobile Phone No.: {facultyInfo.contact}</td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Semester: {classInfo.semester}</td>
+                                                                        <td className="border border-black p-1" style={{fontSize:'7pt'}}>Institutional Email: {facultyInfo.email}</td>
                                                                     </tr>
                                                                 </tbody>
                                                             </table>
