@@ -7,53 +7,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Barryvdh\DomPDF\Facade\Pdf;
+use PhpOffice\PhpWord\PhpWord;
+use PhpOffice\PhpWord\IOFactory;
+use PhpOffice\PhpWord\Shared\Html;
 use PhpOffice\PhpWord\Shared\Converter;
-use Inertia\Inertia;
 use App\Models\Syllabus;
 
 class SyllabusController extends Controller
 {
-    public function show(int $id)
-    {
-        $professorId = Auth::id();
-
-        $syllabus = Syllabus::where('id', $id)
-            ->where('professor_id', $professorId) // security: only owner can view
-            ->firstOrFail();
-
-        $step1 = $this->safeJson($syllabus->step1);
-        $step2 = $this->safeJson($syllabus->step2);
-        $step3 = $this->safeJson($syllabus->step3);
-        $step4 = $this->safeJson($syllabus->step4);
-        $step5 = $this->safeJson($syllabus->step5);
-        $step6 = $this->safeJson($syllabus->step6);
-
-        $courseCode  = $syllabus->course_code  ?? '';
-        $courseTitle = $syllabus->course_title ?? '';
-        $courseName  = $syllabus->course_name_header ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY';
-        $header      = $step6['header'] ?? '';
-        $footer      = $step6['footer'] ?? '';
-
-        $syllabusHtml = $this->buildHtml(
-            $courseCode,
-            $courseTitle,
-            $courseName,
-            $step1, $step2, $step3, $step4, $step5,
-            $header,
-            $footer
-        );
-
-        return Inertia::render('pdf_viewer_layout/PdfViewer', [
-            'file' => [
-                'id'          => $syllabus->id,
-                'name'        => $courseTitle ?: $courseCode ?: "Syllabus #{$syllabus->id}",
-                'date'        => $syllabus->updated_at?->format('F j, Y') ?? '',
-                'syllabusHtml'=> $syllabusHtml, // full rendered HTML
-                'url'         => null,          // no static PDF
-            ],
-        ]);
-    }
-
     public function store(Request $request)
     {
         $request->validate([
@@ -1836,9 +1797,10 @@ class SyllabusController extends Controller
             // Yellow banner only on overall page 1 (Course Overview), not on OBTL pages
             $yellowBanner = '';
             $obtlLabel = $isFirst ? '<p style="font-weight:bold;font-size:9pt;margin:4px 0 2px;">OUTCOMES-BASED TEACHING AND LEARNING PLAN (OBTL PLAN)</p>' : '';
+            $obtlIdAttr = $isFirst ? ' id="section-schedule"' : '';
 
             $obtlPagesHtml .= '
-            <div class="page" style="page-break-before:always;">
+            <div class="page"' . $obtlIdAttr . ' style="page-break-before:always;">
                 ' . $this->renderHeaderHtml($header) . '
                 ' . $yellowBanner . '
                 ' . $obtlLabel . '
@@ -1988,8 +1950,9 @@ class SyllabusController extends Controller
                 </table>";
             }
 
+            $rubricIdAttr = $isFirst ? ' id="section-rubrics"' : '';
             $rubricPagesHtml .= '
-            <div class="page" style="page-break-before:always;">
+            <div class="page' . $rubricIdAttr . ' style="page-break-before:always;">
                 ' . $this->renderHeaderHtml($header) . '
                 <div class="section-banner">RUBRICS FOR ASSESSMENT (TO BE FILLED OUT BY THE ASSIGNED FACULTY)</div>
                 <p style="font-weight:bold;margin:4px 0;font-size:8pt;">'
@@ -2142,9 +2105,17 @@ class SyllabusController extends Controller
 <meta charset="UTF-8">
 <style>
   * { box-sizing: border-box; }
+  @page { size: 8.5in 14in; margin: 0.5in 0.6in; }
   body  { font-family: Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; color: #000; }
-  p { margin: 0 0 2px 0; }
-  .page { padding: 6px 12px; }
+  .page {
+    padding: 8px 14px;
+    width: 8.5in;
+    min-height: 14in;
+    page-break-after: always;
+    box-sizing: border-box;
+    position: relative;
+  }
+  .page:last-of-type { page-break-after: auto; }
   .custom-header {
     font-size: 8.5pt;
     line-height: 1.4;
@@ -2166,7 +2137,7 @@ class SyllabusController extends Controller
   .header-yellow { background-color: #FFF9C4; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 6px; margin-bottom: 0; font-size: 9pt; }
   .syllabus-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-wrap: break-word; font-size: 8pt; }
   .syllabus-table td, .syllabus-table th { border: 1px solid black; padding: 4px; vertical-align: top; }
-  .label-cell { background-color: #fcfcfc; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; vertical-align: middle; }
+  .label-cell { background-color: #fcfcfc; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; vertical-align: middle; width: 15%; }
   .section-banner { background: #e2e8f0; border: 1px solid black; padding: 4px; text-align: center; font-weight: bold; font-size: 8pt; text-transform: uppercase; margin-bottom: 0; }
 </style>
 </head>
@@ -2181,39 +2152,48 @@ class SyllabusController extends Controller
         {$courseNameH}<br/>
         Outcomes-Based Course Syllabus
     </div>
-    <table class="syllabus-table" style="table-layout:fixed;">
-        <colgroup>
-            <col style="width:12%;"/><col style="width:12%;"/>
-            <col style="width:10%;"/><col style="width:38%;"/>
-            <col style="width:12%;"/><col style="width:8%;"/>
-            <col style="width:8%;"/>
-        </colgroup>
-        <tbody>
-            <tr>
-                <td class="label-cell">COURSE CODE</td>
-                <td style="font-weight:bold;font-size:9pt;vertical-align:middle;">{$codeH}</td>
-                <td class="label-cell">COURSE TITLE</td>
-                <td style="font-weight:bold;font-size:9pt;vertical-align:middle;">{$titleH}</td>
-                <td class="label-cell">COURSE CREDIT</td>
-                <td colspan="2" style="text-align:center;font-size:9pt;vertical-align:middle;">{$credit}</td>
-            </tr>
-            <tr>
-                <td class="label-cell">COURSE DESCRIPTION</td>
-                <td colspan="6" style="font-size:9pt;text-align:justify;">{$description}</td>
-            </tr>
-            <tr>
-                <td class="label-cell">PRE-REQUISITES</td>
-                <td colspan="2" style="font-size:9pt;">{$preReq}</td>
-                <td class="label-cell">CO-REQUISITES</td>
-                <td colspan="3" style="font-size:9pt;">{$coReq}</td>
-            </tr>
-        </tbody>
-    </table>
-    <table class="syllabus-table" style="margin-top:-1px;table-layout:fixed;">
+    <table id="section-course-info" class="syllabus-table" style="table-layout:fixed;">
         <colgroup>
             <col style="width:15%;"/><col style="width:85%;"/>
         </colgroup>
         <tbody>
+            <tr>
+                <td class="label-cell">COURSE CODE</td>
+                <td style="padding:0;">
+                    <table style="width:100%;border-collapse:collapse;font-size:9pt;table-layout:fixed;">
+                        <colgroup>
+                            <col style="width:20%;"/><col style="width:15%;"/><col style="width:37%;"/>
+                            <col style="width:17%;"/><col style="width:11%;"/>
+                        </colgroup>
+                        <tr>
+                            <td style="padding:4px 6px;font-weight:bold;vertical-align:middle;">{$codeH}</td>
+                            <td style="padding:4px;font-weight:bold;text-align:center;vertical-align:middle;border-left:1px solid black;border-right:1px solid black;font-size:7pt;text-transform:uppercase;">COURSE TITLE</td>
+                            <td style="padding:4px 6px;font-weight:bold;vertical-align:middle;">{$titleH}</td>
+                            <td style="padding:4px;font-weight:bold;text-align:center;vertical-align:middle;border-left:1px solid black;border-right:1px solid black;font-size:7pt;text-transform:uppercase;">COURSE CREDIT</td>
+                            <td style="padding:4px;text-align:center;vertical-align:middle;font-size:9pt;">{$credit}</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+            <tr>
+                <td class="label-cell">COURSE DESCRIPTION</td>
+                <td style="font-size:9pt;text-align:justify;padding:4px 6px;">{$description}</td>
+            </tr>
+            <tr>
+                <td class="label-cell">PRE-REQUISITES</td>
+                <td style="padding:0;">
+                    <table style="width:100%;border-collapse:collapse;font-size:9pt;table-layout:fixed;">
+                        <colgroup>
+                            <col style="width:38%;"/><col style="width:15%;"/><col style="width:47%;"/>
+                        </colgroup>
+                        <tr>
+                            <td style="padding:4px 6px;vertical-align:middle;">{$preReq}</td>
+                            <td style="padding:4px;font-weight:bold;text-align:center;vertical-align:middle;border-left:1px solid black;border-right:1px solid black;font-size:7pt;text-transform:uppercase;">CO-REQUISITES</td>
+                            <td style="padding:4px 6px;vertical-align:middle;">{$coReq}</td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
             <tr>
                 <td class="label-cell">VISION</td>
                 <td style="font-size:9pt;text-align:justify;">{$visionH}</td>
@@ -2241,7 +2221,7 @@ class SyllabusController extends Controller
 <!-- ═══════════════════════════════════════
      PAGE 2 — STEP 2: PLO/CLO Mapping Matrix
 ════════════════════════════════════════ -->
-<div class="page" style="page-break-before:always;">
+<div id="section-outcomes" class="page" style="page-break-before:always;">
     {$hdrHtml}
 
     <!-- PLO → ILO table -->
@@ -2292,7 +2272,7 @@ class SyllabusController extends Controller
 <!-- ═══════════════════════════════════════
      STEP 4 PAGE 1 — Classroom Policies
 ════════════════════════════════════════ -->
-<div class="page" style="page-break-before:always;">
+<div id="section-requirements" class="page" style="page-break-before:always;">
     {$hdrHtml}
     <div class="section-banner">CLASSROOM POLICIES (to be filled out by the assigned faculty)</div>
     <table style="width:100%;border-collapse:collapse;border:1px solid black;font-size:8pt;">
@@ -2341,7 +2321,7 @@ class SyllabusController extends Controller
 <!-- ═══════════════════════════════════════
      STEP 4 PAGE 2 — Requirements & Grading
 ════════════════════════════════════════ -->
-<div class="page" style="page-break-before:always;">
+<div id="section-grading" class="page" style="page-break-before:always;">
     {$hdrHtml}
     <div class="section-banner">COURSE REQUIREMENTS &amp; EVALUATION</div>
     <table style="width:100%;border-collapse:collapse;border:1px solid black;font-size:8.5pt;">
