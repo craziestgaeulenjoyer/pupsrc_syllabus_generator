@@ -46,8 +46,10 @@ class SyllabusController extends Controller
         $exportFormat = $step6['exportFormat'] ?? 'pdf';
         $customName   = trim($step6['fileName'] ?? '');
         $courseName   = trim($step6['courseName'] ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
-        $header       = $request->header ?? ($step6['header'] ?? '');
-        $footer       = $request->footer ?? ($step6['footer'] ?? '');
+        // IMPORTANT: $request->header in Laravel calls header() which returns HTTP headers,
+        // NOT the form field. Always use $request->input('header') for the submitted value.
+        $header       = $request->input('header') ?? ($step6['header'] ?? '');
+        $footer       = $request->input('footer') ?? ($step6['footer'] ?? '');
 
         $baseName = $customName ?: ($courseCode ?: 'syllabus');
         $baseName = trim(preg_replace('/[^a-zA-Z0-9_\-\. ]/', '', $baseName)) ?: 'syllabus';
@@ -190,8 +192,10 @@ class SyllabusController extends Controller
         // Otherwise stream the file
         $exportFormat = $step6['exportFormat'] ?? 'pdf';
         $customName   = trim($step6['fileName'] ?? '');
-        $header       = $request->header ?? ($step6['header'] ?? '');
-        $footer       = $request->footer ?? ($step6['footer'] ?? '');
+        // IMPORTANT: $request->header in Laravel calls header() which returns HTTP headers,
+        // NOT the form field. Always use $request->input('header') for the submitted value.
+        $header       = $request->input('header') ?? ($step6['header'] ?? '');
+        $footer       = $request->input('footer') ?? ($step6['footer'] ?? '');
         $baseName     = $customName ?: ($courseCode ?: 'syllabus');
         $baseName     = trim(preg_replace('/[^a-zA-Z0-9_\-\. ]/', '', $baseName)) ?: 'syllabus';
 
@@ -574,33 +578,57 @@ class SyllabusController extends Controller
         // ── Helper: attach genuine Word header & footer to a section ──────────
         // Uses PhpWord's native Header/Footer API so the header/footer appear
         // in the actual Word header/footer area (visible in Print Layout & print).
+
+        // Temp files for header/footer data-URI images — unlinked AFTER the document
+        // is serialized (PhpWord reads image files lazily during save(), so unlinking
+        // immediately after addImage() deletes the file before it is ever read).
+        $hfTempFiles = [];
+
+        // Shared image-to-element helper used by both header and footer rendering.
+        $addImgToElement = function ($element, array $img) use ($fntXSm, &$hfTempFiles) {
+            $src = $img['src'];
+            try {
+                if (str_starts_with($src, 'data:')) {
+                    $parts   = explode(',', $src, 2);
+                    $tmpFile = tempnam(sys_get_temp_dir(), 'hfimg_') . '.png';
+                    file_put_contents($tmpFile, base64_decode($parts[1] ?? ''));
+                    $element->addImage($tmpFile, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
+                    // Queue for cleanup AFTER save() — do NOT unlink here
+                    $hfTempFiles[] = $tmpFile;
+                } else {
+                    $element->addImage($src, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
+                }
+            } catch (\Throwable $e) {
+                $element->addText('[img]', $fntXSm);
+            }
+        };
+
         $addWordHF = function (
             \PhpOffice\PhpWord\Element\Section $sec,
             string $headerHtml,
             string $footerHtml
-        ) use ($pageW, $fntXSm) {
+        ) use ($pageW, $fntXSm, $addImgToElement) {
 
-            // --- Header ---
-            if (trim($headerHtml) !== '') {
-                $hdr = $sec->addHeader();
+            $EDITOR_W = 900; // approximate editor pixel width for left/right image split
 
-                // Parse images and text from the rich HTML
+            // ── Shared: parse images + plain text from a rich HF HTML string ──
+            $parseHfHtml = function (string $html) use ($EDITOR_W): array {
                 libxml_use_internal_errors(true);
                 $dom = new \DOMDocument('1.0', 'UTF-8');
                 $dom->loadHTML(
-                    '<?xml encoding="UTF-8"><div id="__hf__">' . $headerHtml . '</div>',
+                    '<?xml encoding="UTF-8"><div id="__hf__">' . $html . '</div>',
                     LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
                 );
                 libxml_clear_errors();
 
-                $root     = $dom->getElementById('__hf__');
-                $leftImgs = []; $rightImgs = []; $EDITOR_W = 900; $toRemove = [];
+                $root      = $dom->getElementById('__hf__');
+                $leftImgs  = []; $rightImgs = []; $toRemove = [];
                 foreach ($dom->getElementsByTagName('img') as $img) {
-                    $style = $img->getAttribute('style');
-                    $leftPx = 0; $widthPx = 80; $heightPx = 60;
-                    if (preg_match('/left\s*:\s*([\d.]+)px/i', $style, $m)) $leftPx  = (float)$m[1];
-                    if (preg_match('/width\s*:\s*([\d.]+)px/i', $style, $m)) $widthPx = (int)$m[1];
-                    if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx= (int)$m[1];
+                    $style    = $img->getAttribute('style');
+                    $leftPx   = 0; $widthPx = 80; $heightPx = 60;
+                    if (preg_match('/left\s*:\s*([\d.]+)px/i',   $style, $m)) $leftPx   = (float)$m[1];
+                    if (preg_match('/width\s*:\s*([\d.]+)px/i',  $style, $m)) $widthPx  = (int)$m[1];
+                    if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx = (int)$m[1];
                     $src = $img->getAttribute('src');
                     if (empty($src)) { $toRemove[] = $img; continue; }
                     $scale  = min(1.0, 70 / max($heightPx, 1));
@@ -614,37 +642,27 @@ class SyllabusController extends Controller
                 foreach ($toRemove as $n) { $n->parentNode?->removeChild($n); }
                 $inner = '';
                 if ($root) { foreach ($root->childNodes as $child) { $inner .= $dom->saveHTML($child); } }
-                $plainText = trim(strip_tags($inner));
+                return [
+                    'leftImgs'  => $leftImgs,
+                    'rightImgs' => $rightImgs,
+                    'plainText' => trim(strip_tags($inner)),
+                ];
+            };
 
-                $addImgToElement = function ($element, array $img) use ($fntXSm) {
-                    $src = $img['src'];
-                    try {
-                        if (str_starts_with($src, 'data:')) {
-                            $parts   = explode(',', $src, 2);
-                            $tmpFile = tempnam(sys_get_temp_dir(), 'hfimg_') . '.png';
-                            file_put_contents($tmpFile, base64_decode($parts[1] ?? ''));
-                            $element->addImage($tmpFile, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
-                            @unlink($tmpFile);
-                        } else {
-                            $element->addImage($src, ['width' => $img['w'], 'height' => $img['h'], 'wrappingStyle' => 'inline']);
-                        }
-                    } catch (\Throwable $e) {
-                        $element->addText('[img]', $fntXSm);
-                    }
-                };
-
+            // ── Shared: render parsed HF data into a PhpWord header/footer element ──
+            $renderHfElement = function ($element, array $parsed) use ($pageW, $fntXSm, $addImgToElement) {
+                ['leftImgs' => $leftImgs, 'rightImgs' => $rightImgs, 'plainText' => $plainText] = $parsed;
                 $hasLeft  = !empty($leftImgs);
                 $hasRight = !empty($rightImgs);
 
                 if (!$hasLeft && !$hasRight) {
-                    // Plain text header
-                    $hdr->addText($plainText, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
+                    $element->addText($plainText, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
                 } else {
-                    // 3-column table in header
                     $imgColW  = (int)($pageW * 0.15);
                     $textColW = $pageW - ($hasLeft ? $imgColW : 0) - ($hasRight ? $imgColW : 0);
-                    $cellBase = ['borderTopSize' => 0, 'borderBottomSize' => 0, 'borderLeftSize' => 0, 'borderRightSize' => 0, 'cellMargin' => ['top' => 40, 'bottom' => 40, 'left' => 60, 'right' => 60]];
-                    $tbl = $hdr->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
+                    $cellBase = ['borderTopSize' => 0, 'borderBottomSize' => 0, 'borderLeftSize' => 0, 'borderRightSize' => 0,
+                                 'cellMargin' => ['top' => 40, 'bottom' => 40, 'left' => 60, 'right' => 60]];
+                    $tbl = $element->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
                     $tbl->addRow();
                     if ($hasLeft) {
                         usort($leftImgs, fn($a, $b) => $a['left'] <=> $b['left']);
@@ -659,67 +677,20 @@ class SyllabusController extends Controller
                         foreach ($rightImgs as $img) { $addImgToElement($rCell, $img); }
                     }
                 }
+            };
+
+            // --- Header ---
+            if (trim($headerHtml) !== '') {
+                $hdr    = $sec->addHeader();
+                $parsed = $parseHfHtml($headerHtml);
+                $renderHfElement($hdr, $parsed);
             }
 
             // --- Footer ---
             if (trim($footerHtml) !== '') {
-                $ftr = $sec->addFooter();
-
-                libxml_use_internal_errors(true);
-                $dom2 = new \DOMDocument('1.0', 'UTF-8');
-                $dom2->loadHTML(
-                    '<?xml encoding="UTF-8"><div id="__hf2__">' . $footerHtml . '</div>',
-                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
-                );
-                libxml_clear_errors();
-
-                $root2     = $dom2->getElementById('__hf2__');
-                $leftImgs2 = []; $rightImgs2 = []; $toRemove2 = [];
-                foreach ($dom2->getElementsByTagName('img') as $img) {
-                    $style = $img->getAttribute('style');
-                    $leftPx = 0; $widthPx = 80; $heightPx = 60;
-                    if (preg_match('/left\s*:\s*([\d.]+)px/i', $style, $m)) $leftPx  = (float)$m[1];
-                    if (preg_match('/width\s*:\s*([\d.]+)px/i', $style, $m)) $widthPx = (int)$m[1];
-                    if (preg_match('/height\s*:\s*([\d.]+)px/i', $style, $m)) $heightPx= (int)$m[1];
-                    $src = $img->getAttribute('src');
-                    if (empty($src)) { $toRemove2[] = $img; continue; }
-                    $scale  = min(1.0, 70 / max($heightPx, 1));
-                    $wFinal = max(20, (int)($widthPx  * $scale));
-                    $hFinal = max(10, (int)($heightPx * $scale));
-                    $entry  = ['src' => $src, 'w' => $wFinal, 'h' => $hFinal, 'left' => $leftPx];
-                    if ($leftPx < $EDITOR_W * 0.5) $leftImgs2[] = $entry;
-                    else                            $rightImgs2[] = $entry;
-                    $toRemove2[] = $img;
-                }
-                foreach ($toRemove2 as $n) { $n->parentNode?->removeChild($n); }
-                $inner2 = '';
-                if ($root2) { foreach ($root2->childNodes as $child) { $inner2 .= $dom2->saveHTML($child); } }
-                $plainText2 = trim(strip_tags($inner2));
-
-                $hasLeft2  = !empty($leftImgs2);
-                $hasRight2 = !empty($rightImgs2);
-
-                if (!$hasLeft2 && !$hasRight2) {
-                    $ftr->addText($plainText2, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
-                } else {
-                    $imgColW   = (int)($pageW * 0.15);
-                    $textColW  = $pageW - ($hasLeft2 ? $imgColW : 0) - ($hasRight2 ? $imgColW : 0);
-                    $cellBase  = ['borderTopSize' => 0, 'borderBottomSize' => 0, 'borderLeftSize' => 0, 'borderRightSize' => 0, 'cellMargin' => ['top' => 40, 'bottom' => 40, 'left' => 60, 'right' => 60]];
-                    $tbl2 = $ftr->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-                    $tbl2->addRow();
-                    if ($hasLeft2) {
-                        usort($leftImgs2, fn($a, $b) => $a['left'] <=> $b['left']);
-                        $lCell2 = $tbl2->addCell($imgColW, $cellBase);
-                        foreach ($leftImgs2 as $img) { $addImgToElement($lCell2, $img); }
-                    }
-                    $cCell2 = $tbl2->addCell($textColW, array_merge($cellBase, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]));
-                    if ($plainText2 !== '') { $cCell2->addText($plainText2, $fntXSm, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]); }
-                    if ($hasRight2) {
-                        usort($rightImgs2, fn($a, $b) => $a['left'] <=> $b['left']);
-                        $rCell2 = $tbl2->addCell($imgColW, $cellBase);
-                        foreach ($rightImgs2 as $img) { $addImgToElement($rCell2, $img); }
-                    }
-                }
+                $ftr    = $sec->addFooter();
+                $parsed = $parseHfHtml($footerHtml);
+                $renderHfElement($ftr, $parsed);
             }
         };
 
@@ -897,7 +868,7 @@ class SyllabusController extends Controller
         $mainTable->addRow(350);
         $mainTable->addCell($labelSpanW, array_merge($border, ['shading' => $bgHeaderCell, 'cellMargin' => $cellPad, 'valign' => 'center']))->addText('COLLEGE / CAMPUS GOALS', $fntLabel, $center);
         $cgCell = $mainTable->addCell($valueSpanW, array_merge($border, ['gridSpan' => 5, 'cellMargin' => $cellPad]));
-        $cgSentences = array_filter(array_map('trim', preg_split('/(?<=\.)\s+(?=To\s)/i', $collegeGoals ?: ' ')));
+        $cgSentences = array_filter(array_map('trim', preg_split('/(?<=\.)\s+(?=(?:To|Innovation)\s)/i', $collegeGoals ?: ' ')));
         if (empty($cgSentences)) { $cgSentences = [$collegeGoals ?: ' ']; }
         foreach (array_values($cgSentences) as $gi => $goal) {
             $cgCell->addText(($gi + 1) . '. ' . $goal, $fntValue);
@@ -931,8 +902,8 @@ class SyllabusController extends Controller
             'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
             'valign'     => 'center',
         ]));
-        $bannerCell2->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
-        $bannerCell2->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 14, 'bold' => true, 'color' => 'FFFFFF'], $center);
+        $bannerCell2->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 13, 'bold' => true, 'color' => 'FFFFFF'], $center);
+        $bannerCell2->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 11, 'bold' => true, 'color' => 'FFFFFF'], $center);
 
         // Checkmark safe for PhpWord (explicit UTF-8 bytes for U+2713 ✓)
         $chk = "\xE2\x9C\x93";
@@ -979,7 +950,7 @@ class SyllabusController extends Controller
 
         $ploFlatColW  = (int)(($pageW * 0.46) / $iloCount); // each ILO col
         $ploDescW     = (int)($pageW * 0.48);                // description col
-        $ploSideFlatW = $pageW - $ploDescW - ($ploFlatColW * $iloCount); // side label
+        $ploSideFlatW = max(300, $pageW - $ploDescW - ($ploFlatColW * $iloCount)); // side label — clamped to avoid zero/negative
 
         $ploTable = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
 
@@ -1031,9 +1002,16 @@ class SyllabusController extends Controller
 
         // CLO → PLO table
         $ploCount   = count($plos);
-        $cloFlatColW = $ploCount > 0 ? (int)(($pageW * 0.46) / $ploCount) : (int)($pageW * 0.05);
+        // Guard: if there are many PLOs, cloFlatColW * ploCount can exceed the
+        // remaining width and make cloSideW negative, producing invalid XML that
+        // causes PhpWord to silently drop ALL content after this table.
+        // Fix: shrink cloFlatColW so the three column groups always fit in $pageW.
         $cloDescW    = (int)($pageW * 0.48);
-        $cloSideW    = $pageW - $cloDescW - ($cloFlatColW * $ploCount);
+        $cloSideW    = (int)($pageW * 0.06);  // fixed side-label width
+        $cloAvailW   = $pageW - $cloDescW - $cloSideW;
+        $cloFlatColW = $ploCount > 0 ? max(200, (int)($cloAvailW / $ploCount)) : (int)($pageW * 0.05);
+        // Re-derive cloSideW so columns sum exactly to $pageW
+        $cloSideW    = max(300, $pageW - $cloDescW - ($cloFlatColW * $ploCount));
 
         $cloTable = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
 
@@ -1118,8 +1096,8 @@ class SyllabusController extends Controller
                 'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
                 'valign'     => 'center',
             ]));
-            $obtlBannerCell->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 16, 'bold' => true, 'color' => 'FFFFFF'], $center);
-            $obtlBannerCell->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 14, 'bold' => true, 'color' => 'FFFFFF'], $center);
+            $obtlBannerCell->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 13, 'bold' => true, 'color' => 'FFFFFF'], $center);
+            $obtlBannerCell->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 11, 'bold' => true, 'color' => 'FFFFFF'], $center);
 
             // OBTL table
             $obtlTable = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
@@ -1388,16 +1366,32 @@ class SyllabusController extends Controller
         }
 
         $gradCell->addText('GRADING SYSTEM', array_merge($fntNorm, ['bold' => true, 'underline' => \PhpOffice\PhpWord\Style\Font::UNDERLINE_SINGLE]));
+
+        // Render grading components in a nested 2-col table (label|pct) — mirrors PDF layout.
+        // This avoids stacking label, subitems, and percentage as plain paragraphs, which
+        // produces an illegible single-column list instead of the expected aligned table.
+        $noBorder = ['borderTopSize' => 0, 'borderBottomSize' => 0, 'borderLeftSize' => 0, 'borderRightSize' => 0];
+        $gradInnerLblW = (int)($gradW2 * 0.72);
+        $gradInnerPctW = $gradW2 - $gradInnerLblW;
+        $gradInnerTable = $gradCell->addTable(['width' => $gradW2, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
         foreach ($gradingComponents as $comp) {
             $lbl  = $t($s($comp['label'] ?? ($comp['name'] ?? '')));
             $pct  = (int)($comp['percentage'] ?? 0);
             $subs = isset($comp['subItems']) ? implode(', ', array_map(fn($sub) => $t($s($sub['label'] ?? '')), $comp['subItems'])) : '';
-
-            $gradCell->addText($lbl, array_merge($fntNorm, ['bold' => true]));
-            if ($subs) $gradCell->addText($subs, $fntXSm);
-            $gradCell->addText($pct . '%', $fntNorm);
+            $gradInnerTable->addRow();
+            $lblCell = $gradInnerTable->addCell($gradInnerLblW, array_merge($noBorder, ['cellMargin' => ['top' => 20, 'bottom' => 20, 'left' => 0, 'right' => 40], 'valign' => 'top']));
+            $lblCell->addText($lbl, array_merge($fntNorm, ['bold' => true]));
+            if ($subs) $lblCell->addText($subs, $fntXSm);
+            $gradInnerTable->addCell($gradInnerPctW, array_merge($noBorder, ['cellMargin' => ['top' => 20, 'bottom' => 20, 'left' => 40, 'right' => 0], 'valign' => 'top']))
+                ->addText($pct . '%', array_merge($fntNorm, ['bold' => true]), ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::RIGHT]);
         }
-        $gradCell->addText('TOTAL: 100%', array_merge($fntNorm, ['bold' => true]));
+        // Total row
+        $gradInnerTable->addRow();
+        $gradInnerTable->addCell($gradInnerLblW, array_merge($noBorder, ['cellMargin' => ['top' => 20, 'bottom' => 20, 'left' => 0, 'right' => 40],
+            'borderTopSize' => 8, 'borderTopColor' => '000000', 'borderTopStyle' => 'single']))->addText('TOTAL', array_merge($fntNorm, ['bold' => true]));
+        $gradInnerTable->addCell($gradInnerPctW, array_merge($noBorder, ['cellMargin' => ['top' => 20, 'bottom' => 20, 'left' => 40, 'right' => 0],
+            'borderTopSize' => 8, 'borderTopColor' => '000000', 'borderTopStyle' => 'single']))
+            ->addText('100%', array_merge($fntNorm, ['bold' => true]), ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::RIGHT]);
 
         // ════════════════════════════════════════════════════════════════════
         // PAGES — Rubrics + Group Grade + Class Info + Signatories (Step 5)
@@ -1579,6 +1573,9 @@ class SyllabusController extends Controller
             @unlink($tmpPath);
             Log::error('PhpWord save failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             throw $e; // re-throw so store()'s try/catch logs it properly
+        } finally {
+            // Clean up header/footer image temp files NOW — after save() has read them all.
+            foreach ($hfTempFiles as $f) { @unlink($f); }
         }
 
         return response()->download(
