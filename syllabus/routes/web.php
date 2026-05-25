@@ -16,6 +16,15 @@ Route::get('/phpinfo-test', function () {
     phpinfo();
 });
 
+Route::get('/google-oauth-callback', function () {
+    // COOP must be relaxed on this page so the popup can postMessage the OAuth
+    // token back to the opener and so that window.closed polling works without
+    // throwing a cross-origin security error.
+    return response()->view('google-oauth-callback')
+        ->header('Cross-Origin-Opener-Policy',   'unsafe-none')
+        ->header('Cross-Origin-Embedder-Policy', 'unsafe-none');
+});
+
 /* ---------------- AUTHENTICATION ROUTES ---------------- */
 Route::get('/', function () {
     return redirect()->route('login');

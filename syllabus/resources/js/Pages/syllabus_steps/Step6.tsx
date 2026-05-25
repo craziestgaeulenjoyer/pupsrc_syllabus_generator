@@ -1161,6 +1161,172 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
         };
     };
 
+    // ── Google Drive upload helper ────────────────────────────────────────────
+    // Uploads a DOCX blob to the user's Google Drive and opens it in Google Docs
+    // for editing. Uses the Google Drive REST API with a popup OAuth flow.
+    // No server-side OAuth or publicly-accessible URL needed.
+    // Helper: encode a string to UTF-8 bytes
+    const encodeText = (str: string): Uint8Array<ArrayBuffer> => {
+        const encoded = new TextEncoder().encode(str);
+        // TextEncoder.encode() returns Uint8Array<ArrayBufferLike> in newer TS lib types.
+        // Copying into a fresh ArrayBuffer-backed Uint8Array satisfies the stricter
+        // BlobPart constraint (Uint8Array<ArrayBuffer>) without any unsafe casts.
+        const buf = new ArrayBuffer(encoded.byteLength);
+        new Uint8Array(buf).set(encoded);
+        return new Uint8Array(buf) as Uint8Array<ArrayBuffer>;
+    };
+
+    // Helper: concatenate multiple Uint8Arrays into one
+    const concatBuffers = (...parts: Uint8Array[]): Uint8Array => {
+        const total = parts.reduce((n, p) => n + p.byteLength, 0);
+        const out   = new Uint8Array(total);
+        let offset  = 0;
+        for (const p of parts) { out.set(p, offset); offset += p.byteLength; }
+        return out;
+    };
+
+    const uploadToGoogleDocs = async (base64: string, fileName: string): Promise<void> => {
+        // 1. Decode base64 → binary Uint8Array → Blob (preserves exact binary content)
+        const binaryStr = atob(base64);
+        const bytes     = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        const docxBlob  = new Blob([bytes], {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+
+        // 2. Get a Google OAuth token via a popup (implicit flow — no server secret needed)
+        const GOOGLE_CLIENT_ID = (window as any).GOOGLE_DOCS_CLIENT_ID ?? '';
+        if (!GOOGLE_CLIENT_ID) {
+            const url  = URL.createObjectURL(docxBlob);
+            const link = document.createElement('a');
+            link.href = url; link.download = fileName;
+            document.body.appendChild(link); link.click(); link.remove();
+            URL.revokeObjectURL(url);
+            alert('Google Docs upload requires GOOGLE_DOCS_CLIENT_ID to be set. File downloaded instead.');
+            return;
+        }
+
+        const token = await new Promise<string>((resolve, reject) => {
+            const redirectUri = `${window.location.origin}/google-oauth-callback`;
+            const scope       = 'https://www.googleapis.com/auth/drive.file';
+            const authUrl     =
+                `https://accounts.google.com/o/oauth2/v2/auth` +
+                `?client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
+                `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+                `&response_type=token` +
+                `&scope=${encodeURIComponent(scope)}` +
+                `&prompt=consent`;
+
+            const popup = window.open(authUrl, 'googleOAuth', 'width=500,height=600,left=300,top=100');
+            if (!popup) { reject(new Error('Popup was blocked — please allow popups for this site.')); return; }
+
+            const handler = (event: MessageEvent) => {
+                if (event.origin !== window.location.origin) return;
+                if (event.data?.type === 'GOOGLE_OAUTH_TOKEN') {
+                    window.removeEventListener('message', handler);
+                    clearInterval(timer);
+                    resolve(event.data.token);
+                } else if (event.data?.type === 'GOOGLE_OAUTH_ERROR') {
+                    window.removeEventListener('message', handler);
+                    clearInterval(timer);
+                    reject(new Error(event.data.error || 'Google sign-in failed.'));
+                }
+            };
+            window.addEventListener('message', handler);
+            // Give postMessage a 1.5 s grace window after the popup closes before
+            // treating it as a cancelled sign-in. This prevents a race where the
+            // popup closes (triggering this check) a split-second before the
+            // postMessage arrives in the opener — which would otherwise cause the
+            // Promise to reject even though the token was successfully sent.
+            // NOTE: accessing popup.closed throws when COOP is "same-origin", so
+            // we wrap it in a try/catch; the route now sends COOP: unsafe-none to
+            // prevent that entirely.
+            let closedAt: number | null = null;
+            const timer = setInterval(() => {
+                try {
+                    if (!popup.closed) { closedAt = null; return; }
+                } catch {
+                    // COOP blocked the check — assume still open, let postMessage handle it
+                    return;
+                }
+                if (closedAt === null) { closedAt = Date.now(); return; }
+                if (Date.now() - closedAt > 1500) {
+                    clearInterval(timer);
+                    window.removeEventListener('message', handler);
+                    reject(new Error('Sign-in window was closed before completing.'));
+                }
+            }, 500);
+        });
+
+        // 3. Build a properly-formatted multipart/related body and POST it to
+        //    the Drive upload endpoint in one request. Drive sees
+        //    mimeType=vnd.google-apps.document and converts the DOCX automatically.
+        //
+        //    Rules that must be exact or Drive returns 400 badRequest:
+        //      • First boundary line: "--{boundary}\r\n"  (NO leading \r\n)
+        //      • Between parts:       "\r\n--{boundary}\r\n"
+        //      • Final boundary:      "\r\n--{boundary}--"
+        //      • Content-Type header: boundary value MUST be quoted
+
+        const boundary = 'syllabus_gdrive_' + Date.now();
+
+        const metadata = {
+            name:     fileName.replace(/\.docx$/i, ''),
+            mimeType: 'application/vnd.google-apps.document',
+        };
+
+        // NEW — every text segment is explicitly encoded to Uint8Array bytes first,
+        // preventing any charset mangling when mixed with the binary DOCX content.
+        const part1Bytes = encodeText(
+            `--${boundary}\r\n` +
+            `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+            JSON.stringify(metadata)
+        );
+
+        const part2HeaderBytes = encodeText(
+            `\r\n--${boundary}\r\n` +
+            `Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n`
+        );
+
+        const closingBytes = encodeText(`\r\n--${boundary}--`);
+
+        // Combine all parts as raw Uint8Arrays so binary content is never re-encoded
+        const multipartBody = new Blob(
+            [part1Bytes, part2HeaderBytes, docxBlob, closingBytes],
+            { type: `multipart/related; boundary="${boundary}"` }
+        );
+
+        const uploadResp = await fetch(
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+            {
+                method:  'POST',
+                headers: {
+                    Authorization:  `Bearer ${token}`,
+                    'Content-Type': `multipart/related; boundary="${boundary}"`,
+                },
+                body: multipartBody,
+            }
+        );
+
+        if (!uploadResp.ok) {
+            const err = await uploadResp.text();
+            throw new Error(`Google Drive upload failed: ${err}`);
+        }
+
+        const uploaded = await uploadResp.json();
+
+        if (!uploaded.id) {
+            throw new Error('Google Drive did not return a file ID.');
+        }
+
+        // Open the converted Google Doc
+        window.open(
+            `https://docs.google.com/document/d/${uploaded.id}/edit`,
+            '_blank',
+            'noopener,noreferrer'
+        );
+    };
+
     const handleGenerateSyllabus = async () => {
         // Validate header and footer are not empty
         const headerText = headerContent.replace(/<[^>]*>/g, '').trim();
@@ -1186,37 +1352,61 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
             const payload = buildFullPayload();
             if (!payload) { alert("Session expired. Please restart."); return; }
 
-            // In edit mode: first save all changes via PATCH (by hash, guaranteed
-            // to hit the correct existing record), then trigger the file download
-            // via a separate POST so the blob response isn't swallowed by axios.
+            const isGdocs = exportFormatRef.current === 'gdocs';
+
+            // In edit mode: first save all changes via PATCH
             if (isEditMode && syllabusHash) {
-                // 1. Persist all edits to the existing DB record via PATCH
                 await axios.patch(
                     `/syllabi/${syllabusHash}`,
                     { ...payload, download: false }
                 );
             }
 
-            // 2. Stream the file (create mode: save+download in one; edit mode: download only)
-            const response = await axios.post(
-                '/syllabus-generator/save',
-                { ...payload, download: true },
-                { responseType: 'blob' }
-            );
+            if (isGdocs) {
+                // Google Docs path: server generates DOCX and returns it as base64 JSON.
+                // We then upload it directly from the browser to Google Drive, which
+                // converts it to a native Google Doc that the user can edit online.
+                const response = await axios.post(
+                    '/syllabus-generator/save',
+                    { ...payload, download: true },
+                    { responseType: 'json' }
+                );
 
-            const mimeType = exportFormatRef.current === 'docx'
-                ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                : 'application/pdf';
+                const { base64, file_name } = response.data;
+                if (!base64) throw new Error('Server returned no file data.');
 
-            const blob = new Blob([response.data], { type: mimeType });
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = `${fileNameRef.current}.${exportFormatRef.current === 'docx' ? 'docx' : 'pdf'}`;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(downloadUrl);
+                await uploadToGoogleDocs(base64, file_name ?? `${fileNameRef.current}.docx`);
+            } else {
+                // PDF / DOCX download path
+                const response = await axios.post(
+                    '/syllabus-generator/save',
+                    { ...payload, download: true },
+                    { responseType: 'blob' }
+                );
+
+                // Guard: if the server returned JSON (e.g. an error object) instead of a
+                // binary blob, parse and surface it rather than saving a corrupt file.
+                const contentType: string = response.headers?.['content-type'] ?? '';
+                if (contentType.includes('application/json')) {
+                    const text   = await (response.data as Blob).text();
+                    const parsed = JSON.parse(text);
+                    throw new Error(parsed?.export_error ?? parsed?.message ?? 'Export failed.');
+                }
+
+                const mimeType = exportFormatRef.current === 'docx'
+                    ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                    : 'application/pdf';
+
+                const blob        = new Blob([response.data], { type: mimeType });
+                const downloadUrl = URL.createObjectURL(blob);
+                const link        = document.createElement('a');
+                link.href         = downloadUrl;
+                link.download     = `${fileNameRef.current}.${exportFormatRef.current === 'docx' ? 'docx' : 'pdf'}`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(downloadUrl);
+            }
 
             setShowSuccess(true);
             setTimeout(() => {
@@ -1224,9 +1414,10 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 window.location.href = '/dashboard';
             }, 3000);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Export failed:", error);
-            alert("Something went wrong while generating the file. Please try again.");
+            const msg = error?.message ?? error?.response?.data?.export_error ?? 'Something went wrong while generating the file.';
+            alert(msg + '\n\nPlease try again or contact support.');
         } finally {
             setIsGenerating(false);
         }
@@ -1633,6 +1824,40 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         <span className={`font-black text-xs md:text-sm uppercase ${exportFormat === 'docx' ? 'text-blue-600' : 'text-white'}`}>Word (DOCX)</span>
                                     </div>
                                     {exportFormat === 'docx' && <CheckCircle size={18} className="text-blue-600" fill="currentColor" />}
+                                </div>
+
+                                {/* Google Docs Selection */}
+                                <div
+                                    onClick={() => setExportFormat('gdocs')}
+                                    className={`cursor-pointer p-4 md:p-5 rounded-xl border-2 transition-all flex items-center justify-between
+                                    ${exportFormat === 'gdocs' ? 'bg-white border-white' : 'bg-white/10 border-white/20 hover:bg-white/20'}`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className={`p-2 rounded-lg flex items-center justify-center ${exportFormat === 'gdocs' ? 'bg-green-50' : 'bg-white/20'}`}>
+                                            {/* Google Docs icon */}
+                                            <svg width="20" height="20" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M28 4H12C9.8 4 8 5.8 8 8v32c0 2.2 1.8 4 4 4h24c2.2 0 4-1.8 4-4V20L28 4Z"
+                                                    fill={exportFormat === 'gdocs' ? '#1A73E8' : 'white'} opacity={exportFormat === 'gdocs' ? 1 : 0.85}/>
+                                                <path d="M28 4v16h16L28 4Z"
+                                                    fill={exportFormat === 'gdocs' ? '#4285F4' : 'white'} opacity={exportFormat === 'gdocs' ? 0.55 : 0.4}/>
+                                                <rect x="14" y="26" width="20" height="2.5" rx="1.25"
+                                                    fill={exportFormat === 'gdocs' ? 'white' : '#1A73E8'}/>
+                                                <rect x="14" y="31" width="20" height="2.5" rx="1.25"
+                                                    fill={exportFormat === 'gdocs' ? 'white' : '#1A73E8'}/>
+                                                <rect x="14" y="36" width="13" height="2.5" rx="1.25"
+                                                    fill={exportFormat === 'gdocs' ? 'white' : '#1A73E8'}/>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p className={`font-black text-xs md:text-sm uppercase leading-tight ${exportFormat === 'gdocs' ? 'text-green-700' : 'text-white'}`}>
+                                                Google Docs
+                                            </p>
+                                            <p className={`text-[9px] md:text-[10px] font-medium mt-0.5 ${exportFormat === 'gdocs' ? 'text-green-600' : 'text-white/55'}`}>
+                                                Upload &amp; edit online in your Drive
+                                            </p>
+                                        </div>
+                                    </div>
+                                    {exportFormat === 'gdocs' && <CheckCircle size={18} className="text-green-600" fill="currentColor" />}
                                 </div>
 
                                 {/* Filename Input */}
@@ -2519,7 +2744,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 : "/syllabus-generator/step-5"}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 sm:px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs md:text-sm border border-slate-200 transition-all active:scale-95"
                         >
-                            <ChevronLeft size={16} /> <span>Back</span>
+                            <ChevronLeft size={16} /> <span>Bacdddk</span>
                         </Link>
 
                         <button
@@ -2547,11 +2772,14 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                                     </svg>
-                                    <span className="hidden sm:inline">Generating...</span>
+                                    <span className="hidden sm:inline">{exportFormat === 'gdocs' ? 'Uploading...' : 'Generating...'}</span>
                                 </>
                             ) : (
                                 <>
-                                    Finish <span className="hidden sm:inline">& Complete</span> <ChevronRight size={16} />
+                                    {exportFormat === 'gdocs'
+                                        ? <><span>Open in</span> <span className="hidden sm:inline">Google</span> Docs <ChevronRight size={16} /></>
+                                        : <>Finish <span className="hidden sm:inline">& Complete</span> <ChevronRight size={16} /></>
+                                    }
                                 </>
                             )}
                         </button>
@@ -2572,8 +2800,12 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                             <Download className="text-[#4B6333]" size={20} />
                         </div>
                         <div>
-                            <h4 className="text-slate-900 font-black text-xs md:text-sm">Download Started</h4>
-                            <p className="text-slate-500 text-[10px] md:text-xs font-bold truncate max-w-[200px]">Saved as {fileName}.</p>
+                            <h4 className="text-slate-900 font-black text-xs md:text-sm">
+                                {exportFormat === 'gdocs' ? 'Opened in Google Docs' : 'Download Started'}
+                            </h4>
+                            <p className="text-slate-500 text-[10px] md:text-xs font-bold truncate max-w-[200px]">
+                                {exportFormat === 'gdocs' ? 'Check your Google Drive — edit anytime.' : `Saved as ${fileName}.`}
+                            </p>
                         </div>
                     </motion.div>
                 )}
@@ -2582,4 +2814,4 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     );
 };
 
-export default Step6;
+export default Step6; 

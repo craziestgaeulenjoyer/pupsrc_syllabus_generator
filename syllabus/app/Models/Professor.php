@@ -18,9 +18,13 @@ class Professor extends Authenticatable
         'lock_until',
     ];
 
+    // FIX: Added login_attempts and lock_until so they are never serialized
+    // into Inertia props or API responses, even if the full model is passed accidentally.
     protected $hidden = [
         'password',
         'remember_token',
+        'login_attempts',
+        'lock_until',
     ];
 
     protected $casts = [

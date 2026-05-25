@@ -19,7 +19,7 @@ const Login: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [passwordVisible, setPasswordVisible] = useState(false);
     const [lockTime, setLockTime] = useState<number | null>(null);
-    const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
+    // FIX: Removed attemptsLeft state — no longer received from backend
 
     const safeRoute = (name: string) => {
         try {
@@ -29,26 +29,27 @@ const Login: React.FC = () => {
         }
     };
 
-    const startCountdown = (lockUntilISO: string) => {
-        const lockUntil = new Date(lockUntilISO).getTime();
+    // FIX: Now accepts a seconds number instead of an ISO timestamp string,
+    // so no internal lockout timestamps are ever sent to the frontend.
+    const startCountdownFromSeconds = (seconds: number) => {
+        let remaining = seconds;
+        setLockTime(remaining);
 
         const interval = setInterval(() => {
-            const now = new Date().getTime();
-            const diff = Math.max(0, Math.floor((lockUntil - now) / 1000));
+            remaining -= 1;
 
-            if (diff <= 0) {
+            if (remaining <= 0) {
                 clearInterval(interval);
                 setLockTime(null);
 
                 setTimeout(() => {
                     setFormError('');
-                    setAttemptsLeft(null);
                 }, 300);
 
                 return;
             }
 
-            setLockTime(diff);
+            setLockTime(remaining);
         }, 1000);
     };
 
@@ -64,7 +65,7 @@ const Login: React.FC = () => {
         }
 
         setFormError('');
-        setLoading(true); // START loading immediately
+        setLoading(true);
 
         // fake delay
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -74,16 +75,13 @@ const Login: React.FC = () => {
                 // Always generic message
                 setFormError('Invalid credentials.');
 
-                // Handle lock
-                if (errors.lock_until) {
-                    startCountdown(errors.lock_until);
+                // FIX: Handle lock_seconds (a plain number) instead of lock_until (ISO timestamp)
+                if (errors.lock_seconds !== undefined) {
+                    startCountdownFromSeconds(Number(errors.lock_seconds));
                     return;
                 }
 
-                // Handle attempts left
-                if (errors.attempts_left !== undefined) {
-                    setAttemptsLeft(errors.attempts_left);
-                }
+                // FIX: No longer handle attempts_left — backend no longer sends it
             },
 
             onSuccess: () => {
@@ -91,8 +89,6 @@ const Login: React.FC = () => {
 
                 sessionStorage.setItem('syllabus_session_id', sessionId);
                 localStorage.setItem('syllabus_session_id', sessionId);
-
-                setAttemptsLeft(null);
             },
 
             onFinish: () => {
@@ -103,13 +99,8 @@ const Login: React.FC = () => {
 
     const isLocked = (lockTime ?? 0) > 0;
 
-    const displayMessage = formError
-    ? `${formError}${
-        !isLocked && attemptsLeft !== null
-            ? ` (${attemptsLeft} attempt${attemptsLeft !== 1 ? 's' : ''} left)`
-            : ''
-      }`
-    : '';
+    // FIX: Removed attemptsLeft from display message — generic error only
+    const displayMessage = formError ? formError : '';
 
     return (
         <div className="min-h-screen bg-[#F4F1E8] flex items-center justify-center p-4 sm:p-6 relative overflow-hidden font-poppins">

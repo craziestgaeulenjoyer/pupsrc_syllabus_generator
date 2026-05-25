@@ -115,6 +115,9 @@ class SyllabusController extends Controller
 
         // Stream the file — DB is already saved above regardless of what happens here
         try {
+            if ($exportFormat === 'gdocs') {
+                return $this->saveDocxForGoogleDocs($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+            }
             return $exportFormat === 'docx'
                 ? $this->streamDocx($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer)
                 : $this->streamPdf ($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
@@ -200,6 +203,9 @@ class SyllabusController extends Controller
         $baseName     = trim(preg_replace('/[^a-zA-Z0-9_\-\. ]/', '', $baseName)) ?: 'syllabus';
 
         try {
+            if ($exportFormat === 'gdocs') {
+                return $this->saveDocxForGoogleDocs($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+            }
             return $exportFormat === 'docx'
                 ? $this->streamDocx($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer)
                 : $this->streamPdf ($baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
@@ -432,10 +438,11 @@ class SyllabusController extends Controller
         array $step4,
         array $step5,
         string $header,
-        string $footer
+        string $footer,
+        ?string $destPath = null 
     ) {
         // ── Shorthands ───────────────────────────────────────────────────────
-        $t = fn(string $v): string => strip_tags($v);   // strip HTML tags for plain text
+        $t = fn(string $v): string => html_entity_decode(strip_tags($v), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $s = fn($v): string => (string)($v ?? '');
 
         // ── Data extraction (mirrors buildHtml) ──────────────────────────────
@@ -567,6 +574,8 @@ class SyllabusController extends Controller
         // ── Helper: add a full-width section banner row (matches PDF .section-banner) ──
         // Adds a 1-row table with one spanned bold centered dark-blue cell.
         $addSectionBanner = function(\PhpOffice\PhpWord\Element\Section $sec, string $label) use ($pageW, $border, $cellPad, $center) {
+            // PhpWord does NOT escape & in addText() — must sanitize here
+            $label = htmlspecialchars_decode(html_entity_decode(strip_tags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8'), ENT_QUOTES);
             $tbl = $sec->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
             $tbl->addRow();
             $cell = $tbl->addCell($pageW, array_merge($border, ['cellMargin' => $cellPad,
@@ -978,7 +987,7 @@ class SyllabusController extends Controller
 
         // Row 2: side (vMerge continue) | empty desc header | ILO numbers
         $ploTable->addRow(300);
-        $ploTable->addCell($ploSideFlatW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+        $ploTable->addCell($ploSideFlatW, ['vMerge' => 'continue']);
         $ploTable->addCell($ploDescW, array_merge($border, ['cellMargin' => $cellPad]));
         for ($n = 1; $n <= $iloCount; $n++) {
             $ploTable->addCell($ploFlatColW, array_merge($border, ['cellMargin' => $cellPad, 'shading' => $bgGray]))
@@ -990,7 +999,7 @@ class SyllabusController extends Controller
             $pid = $plo['id'] ?? '';
             $lbl = $t($s($plo['label'] ?? ($plo['description'] ?? '')));
             $ploTable->addRow(350);
-            $ploTable->addCell($ploSideFlatW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+            $ploTable->addCell($ploSideFlatW, ['vMerge' => 'continue']);
             $ploTable->addCell($ploDescW, array_merge($border, ['cellMargin' => $cellPad]))
                 ->addText(($idx + 1) . '. ' . $lbl, $fntSm);
             for ($n = 1; $n <= $iloCount; $n++) {
@@ -1037,7 +1046,7 @@ class SyllabusController extends Controller
 
         // Row 2: side (vMerge continue) | empty | PLO numbers
         $cloTable->addRow(300);
-        $cloTable->addCell($cloSideW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+        $cloTable->addCell($cloSideW, ['vMerge' => 'continue']);
         $cloTable->addCell($cloDescW, array_merge($border, ['cellMargin' => $cellPad]));
         foreach ($plos as $i => $plo) {
             $cloTable->addCell($cloFlatColW, array_merge($border, ['cellMargin' => $cellPad, 'shading' => $bgGray]))
@@ -1049,7 +1058,7 @@ class SyllabusController extends Controller
             $cid = $clo['id'] ?? '';
             $lbl = $t($s($clo['text'] ?? ($clo['description'] ?? '')));
             $cloTable->addRow(350);
-            $cloTable->addCell($cloSideW, array_merge($border, ['vMerge' => 'continue', 'cellMargin' => $cellPad]));
+            $cloTable->addCell($cloSideW, ['vMerge' => 'continue']);
             $cloTable->addCell($cloDescW, array_merge($border, ['cellMargin' => $cellPad]))->addText($lbl, $fntSm);
             foreach ($plos as $plo) {
                 $pid = $plo['id'] ?? '';
@@ -1112,42 +1121,42 @@ class SyllabusController extends Controller
                     ['w' => $obtlWidths[2], 'txt' => 'Alignment to (CLOs)', 'rs' => 3],
                     ['w' => $obtlWidths[3], 'txt' => 'Learning Content/Topics', 'rs' => 3],
                 ] as $col) {
-                    $opts = array_merge($border, ['fill' => 'F4CCCC', 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
+                    $opts = array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F4CCCC'], 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
                     $c = $obtlTable->addCell($col['w'], $opts);
                     $c->addText($col['txt'], array_merge($fntSm, ['bold' => true]), $center);
                 }
                 // "Instructional Delivery Design" spans 3 cols
                 $iddW = $obtlWidths[4] + $obtlWidths[5] + $obtlWidths[6];
-                $iddCell = $obtlTable->addCell($iddW, array_merge($border, ['fill' => 'D9EAF7', 'gridSpan' => 3, 'valign' => 'center', 'cellMargin' => $cellPad]));
+                $iddCell = $obtlTable->addCell($iddW, array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'gridSpan' => 3, 'valign' => 'center', 'cellMargin' => $cellPad]));
                 $iddCell->addText('Instructional Delivery Design', array_merge($fntSm, ['bold' => true]), $center);
                 // Assessment Tasks rowspan=3
-                $opts = array_merge($border, ['fill' => 'F4CCCC', 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
+                $opts = array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F4CCCC'], 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
                 $c = $obtlTable->addCell($obtlWidths[7], $opts);
                 $c->addText('Assessment Tasks (TAs)', array_merge($fntSm, ['bold' => true]), $center);
 
                 // Row 2: first 4 + FLTAs colspan=2 + last skip
                 $obtlTable->addRow(350);
                 foreach (range(0, 3) as $ci) {
-                    $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+                    $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue'])->addText('');
                 }
                 $fltaW = $obtlWidths[5] + $obtlWidths[6];
-                $obtlTable->addCell($obtlWidths[4], array_merge($border, ['fill' => 'D9EAF7', 'valign' => 'center', 'cellMargin' => $cellPad]))
+                $obtlTable->addCell($obtlWidths[4], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'valign' => 'center', 'cellMargin' => $cellPad]))
                     ->addText('Face-to-Face', array_merge($fntSm, ['bold' => true]), $center);
-                $fltaCell = $obtlTable->addCell($fltaW, array_merge($border, ['fill' => 'D9EAF7', 'gridSpan' => 2, 'valign' => 'center', 'cellMargin' => $cellPad]));
+                $fltaCell = $obtlTable->addCell($fltaW, array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'gridSpan' => 2, 'valign' => 'center', 'cellMargin' => $cellPad]));
                 $fltaCell->addText('Flexible Learning and Teaching Activities (FLTAs)', array_merge($fntSm, ['bold' => true]), $center);
-                $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+                $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue'])->addText('');
 
                 // Row 3: first 4 + face-to-face + sync + async + last skip
                 $obtlTable->addRow(350);
                 foreach (range(0, 3) as $ci) {
-                    $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+                    $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue'])->addText('');
                 }
-                $obtlTable->addCell($obtlWidths[4], ['vMerge' => 'continue', 'borders' => $border])->addText('');
-                $obtlTable->addCell($obtlWidths[5], array_merge($border, ['fill' => 'D9EAF7', 'valign' => 'center', 'cellMargin' => $cellPad]))
+                $obtlTable->addCell($obtlWidths[4], ['vMerge' => 'continue'])->addText('');
+                $obtlTable->addCell($obtlWidths[5], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'valign' => 'center', 'cellMargin' => $cellPad]))
                     ->addText('Synchronous', $fntXSm, $center);
-                $obtlTable->addCell($obtlWidths[6], array_merge($border, ['fill' => 'D9EAF7', 'valign' => 'center', 'cellMargin' => $cellPad]))
+                $obtlTable->addCell($obtlWidths[6], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'valign' => 'center', 'cellMargin' => $cellPad]))
                     ->addText('Asynchronous', $fntXSm, $center);
-                $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue', 'borders' => $border])->addText('');
+                $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue'])->addText('');
             }
 
             // Data rows
@@ -1347,7 +1356,7 @@ class SyllabusController extends Controller
         $addWordHF($secG, $header, $footer);
 
         // Section banner matching PDF
-        $addSectionBanner($secG, 'COURSE REQUIREMENTS & EVALUATION');
+        $addSectionBanner($secG, 'COURSE REQUIREMENTS & EVALUATION'); // & is safe: sanitized inside closure
 
         $gradW1 = (int)($pageW * 0.60);
         $gradW2 = $pageW - $gradW1;
@@ -1370,7 +1379,10 @@ class SyllabusController extends Controller
         // Render grading components in a nested 2-col table (label|pct) — mirrors PDF layout.
         // This avoids stacking label, subitems, and percentage as plain paragraphs, which
         // produces an illegible single-column list instead of the expected aligned table.
-        $noBorder = ['borderTopSize' => 0, 'borderBottomSize' => 0, 'borderLeftSize' => 0, 'borderRightSize' => 0];
+        $noBorder = ['borderTopSize' => 0, 'borderTopColor' => 'FFFFFF', 'borderTopStyle' => 'none',
+                 'borderBottomSize' => 0, 'borderBottomColor' => 'FFFFFF', 'borderBottomStyle' => 'none',
+                 'borderLeftSize' => 0, 'borderLeftColor' => 'FFFFFF', 'borderLeftStyle' => 'none',
+                 'borderRightSize' => 0, 'borderRightColor' => 'FFFFFF', 'borderRightStyle' => 'none'];
         $gradInnerLblW = (int)($gradW2 * 0.72);
         $gradInnerPctW = $gradW2 - $gradInnerLblW;
         $gradInnerTable = $gradCell->addTable(['width' => $gradW2, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
@@ -1431,7 +1443,7 @@ class SyllabusController extends Controller
 
             // Header row 2 — level names with sub-descriptions (matches Step5 preview)
             $rubTable->addRow();
-            $rubTable->addCell($rW, array_merge($border, ['vMerge' => 'continue']))->addText('');
+            $rubTable->addCell($rW, ['vMerge' => 'continue'])->addText('');
             foreach ([
                 'Advanced - Exceeds expectations',
                 'Competent - Meets expectations',
@@ -1468,7 +1480,7 @@ class SyllabusController extends Controller
 
                 // Header row 2 — Poor/Fair/Good/Excellent labels
                 $groupTable->addRow();
-                $groupTable->addCell($groupW[0], array_merge($border, ['vMerge' => 'continue']))->addText('');
+                $groupTable->addCell($groupW[0], ['vMerge' => 'continue'])->addText('');
                 $groupLabels = ['Poor', 'Fair', 'Good', 'Excellent'];
                 foreach ($groupLabels as $li => $lbl) {
                     $groupTable->addCell($groupW[$li + 1], array_merge($border, ['shading' => $bgGray, 'cellMargin' => $cellPad]))->addText($lbl, array_merge($fntXSm, ['bold' => true]), $center);
@@ -1563,19 +1575,34 @@ class SyllabusController extends Controller
         // final page. By appending one extra empty section here, the last
         // REAL content section is no longer the trailing one, so every page
         // of actual content renders in landscape as intended.
-        $phpWord->addSection($sectionStyle);
+        $sentinelSec = $phpWord->addSection($sectionStyle);
+        // Must have at least one paragraph or Word marks the file as corrupted.
+        $sentinelSec->addText('', ['name' => 'Arial', 'size' => 1]);
 
-        // ── Write & stream ───────────────────────────────────────────────────
-        $tmpPath = tempnam(sys_get_temp_dir(), 'syllabus_') . '.docx';
+    // ── Write & stream ───────────────────────────────────────────────────
+        $tmpDir  = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR);
+        $tmpPath = $tmpDir . DIRECTORY_SEPARATOR . 'syllabus_' . uniqid('', true) . '.docx';
+
         try {
             \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007')->save($tmpPath);
         } catch (\Throwable $e) {
             @unlink($tmpPath);
-            Log::error('PhpWord save failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            throw $e; // re-throw so store()'s try/catch logs it properly
-        } finally {
-            // Clean up header/footer image temp files NOW — after save() has read them all.
             foreach ($hfTempFiles as $f) { @unlink($f); }
+            Log::error('PhpWord save failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            throw $e;
+        }
+
+        foreach ($hfTempFiles as $f) { @unlink($f); }
+
+        // If a destination path was provided (e.g. from buildDocxToPath for the
+        // Google Docs export), move the file there and return null — the caller
+        // will handle the file directly. Otherwise stream it as a download.
+        if ($destPath !== null) {
+            if (!rename($tmpPath, $destPath)) {
+                copy($tmpPath, $destPath);
+                @unlink($tmpPath);
+            }
+            return null;
         }
 
         return response()->download(
@@ -1583,6 +1610,84 @@ class SyllabusController extends Controller
             "{$baseName}.docx",
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
         )->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Build and save the DOCX to a path of our choosing, returning the path.
+     * Extracted so both streamDocx() and the Google Docs export can share it
+     * without duplicating the entire PhpWord construction pipeline.
+     *
+     * Caller is responsible for deleting the file when done.
+     */
+    private function buildDocxToPath(
+        string $destPath,
+        string $baseName,
+        string $courseCode,
+        string $courseTitle,
+        string $courseName,
+        array $step1,
+        array $step2,
+        array $step3,
+        array $step4,
+        array $step5,
+        string $header,
+        string $footer
+    ): void {
+        $this->streamDocx(
+            $baseName, $courseCode, $courseTitle, $courseName,
+            $step1, $step2, $step3, $step4, $step5,
+            $header, $footer,
+            $destPath   // ← passes the dest path; streamDocx moves the file there
+        );
+    }
+
+    /**
+     * For the Google Docs export: generate the DOCX and return it as a
+     * base64-encoded JSON payload. The frontend then uploads the blob
+     * directly to Google Drive via the Drive REST API (client-side OAuth)
+     * and redirects to the resulting Google Docs edit URL.
+     *
+     * This approach works on localhost AND production — no server-side
+     * OAuth or publicly-accessible URL required.
+     */
+    private function saveDocxForGoogleDocs(
+        string $baseName,
+        string $courseCode,
+        string $courseTitle,
+        string $courseName,
+        array $step1,
+        array $step2,
+        array $step3,
+        array $step4,
+        array $step5,
+        string $header,
+        string $footer
+    ) {
+        $tmpDir  = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR);
+        $tmpPath = $tmpDir . DIRECTORY_SEPARATOR . 'syllabus_gdocs_' . uniqid('', true) . '.docx';
+
+        try {
+            $this->buildDocxToPath($tmpPath, $baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+        } catch (\Throwable $e) {
+            @unlink($tmpPath);
+            throw $e;
+        }
+
+        if (!file_exists($tmpPath) || filesize($tmpPath) === 0) {
+            throw new \RuntimeException('DOCX generation produced an empty file.');
+        }
+
+        $base64 = base64_encode(file_get_contents($tmpPath));
+        @unlink($tmpPath);
+
+        Log::info('Syllabus DOCX encoded for Google Docs upload', ['file' => $baseName]);
+
+        return response()->json([
+            'message'   => 'Syllabus ready for Google Docs.',
+            'file_name' => $baseName . '.docx',
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'base64'    => $base64,
+        ]);
     }
 
 
@@ -1949,7 +2054,7 @@ class SyllabusController extends Controller
 
             $rubricIdAttr = $isFirst ? ' id="section-rubrics"' : '';
             $rubricPagesHtml .= '
-            <div class="page' . $rubricIdAttr . ' style="page-break-before:always;">
+            <div class="page"' . $rubricIdAttr . ' style="page-break-before:always;">
                 ' . $this->renderHeaderHtml($header) . '
                 <div class="section-banner">RUBRICS FOR ASSESSMENT (TO BE FILLED OUT BY THE ASSIGNED FACULTY)</div>
                 <p style="font-weight:bold;margin:4px 0;font-size:8pt;">'

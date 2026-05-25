@@ -25,9 +25,12 @@ class AuthController extends Controller
         $fakeLock = Cache::get($key . '_lock');
 
         if ($fakeLock && now()->lt($fakeLock)) {
+            // FIX: Send seconds remaining instead of the raw ISO timestamp
+            $secondsRemaining = max(0, Carbon::now()->diffInSeconds($fakeLock, false));
+
             return back()->withErrors([
                 'email' => 'Invalid credentials.',
-                'lock_until' => $fakeLock->toISOString(),
+                'lock_seconds' => $secondsRemaining,
             ]);
         }
 
@@ -37,46 +40,39 @@ class AuthController extends Controller
         if (!$user) {
             usleep(300000); // anti-timing
 
-            $key = 'login_attempts_' . $credentials['email'];
-
             $attempts = Cache::get($key, 0) + 1;
             Cache::put($key, $attempts, now()->addMinutes(5));
 
             $maxAttempts = 3;
-            $attemptsLeft = max(0, $maxAttempts - $attempts);
 
             // LOCK fake user too
             if ($attempts >= $maxAttempts) {
                 $lockUntil = now()->addMinutes(1);
-
                 Cache::put($key . '_lock', $lockUntil, now()->addMinutes(1));
+
+                // FIX: Send seconds remaining instead of ISO timestamp
+                $secondsRemaining = max(0, Carbon::now()->diffInSeconds($lockUntil, false));
 
                 return back()->withErrors([
                     'email' => 'Invalid credentials.',
-                    'lock_until' => $lockUntil->toISOString(),
+                    'lock_seconds' => $secondsRemaining,
                 ]);
             }
 
+            // FIX: Don't reveal attempts_left — generic message only
             return back()->withErrors([
                 'email' => 'Invalid credentials.',
-                'attempts_left' => $attemptsLeft,
             ]);
         }
 
         // CHECK IF LOCKED
         if ($user->lock_until && Carbon::now()->lt($user->lock_until)) {
-            $remaining = Carbon::now()->diffInSeconds($user->lock_until, false);
-
-            $minutes = floor($remaining / 60);
-            $seconds = $remaining % 60;
-
-            $timeLeft = $minutes > 0
-                ? "{$minutes} minute(s) {$seconds} second(s)"
-                : "{$seconds} second(s)";
+            // FIX: Send seconds remaining instead of ISO timestamp
+            $secondsRemaining = max(0, Carbon::now()->diffInSeconds($user->lock_until, false));
 
             return back()->withErrors([
                 'email' => 'Invalid credentials.',
-                'lock_until' => $user->lock_until->toISOString(),
+                'lock_seconds' => $secondsRemaining,
             ]);
         }
 
@@ -102,7 +98,6 @@ class AuthController extends Controller
         $user->login_attempts += 1;
 
         $maxAttempts = 3;
-        $attemptsLeft = $maxAttempts - $user->login_attempts;
 
         // LOCK AFTER 3 ATTEMPTS
         if ($user->login_attempts >= 3) {
@@ -112,26 +107,20 @@ class AuthController extends Controller
             $user->login_attempts = 0;
             $user->save();
 
-            $remaining = Carbon::now()->diffInSeconds($user->lock_until, false);
-
-            $minutes = floor($remaining / 60);
-            $seconds = $remaining % 60;
-
-            $timeLeft = $minutes > 0
-                ? "{$minutes} minute(s) {$seconds} second(s)"
-                : "{$seconds} second(s)";
+            // FIX: Send seconds remaining instead of ISO timestamp
+            $secondsRemaining = max(0, Carbon::now()->diffInSeconds($user->lock_until, false));
 
             return back()->withErrors([
                 'email' => 'Invalid credentials.',
-                'lock_until' => $user->lock_until->toISOString(),
+                'lock_seconds' => $secondsRemaining,
             ]);
         }
 
         $user->save();
 
+        // FIX: Don't reveal attempts_left — generic message only
         return back()->withErrors([
             'email' => 'Invalid credentials.',
-            'attempts_left' => $attemptsLeft,
         ]);
     }
 
@@ -158,7 +147,8 @@ class AuthController extends Controller
 
         return response()->json([
             'token' => $token,
-            'user' => $user
+            // FIX: Only return safe fields — never the full model
+            'user' => $user->only(['name', 'email']),
         ]);
     }
 
@@ -171,6 +161,7 @@ class AuthController extends Controller
 
     public function user(Request $request)
     {
-        return response()->json($request->user());
+        // FIX: Only return safe fields — never the full model
+        return response()->json($request->user()->only(['name', 'email']));
     }
 }
