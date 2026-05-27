@@ -23,8 +23,13 @@ use Inertia\Inertia;
 class SyllabusEditController extends Controller
 {
     // ── Shared: fetch & authorise ────────────────────────────────────────────
-    private function findOwned(int $id): Syllabus
+    private function findOwned(int|null $id): Syllabus
     {
+        // Abort early if decode returned null (bad/tampered hash)
+        if ($id === null) {
+            abort(404, 'Syllabus not found.');
+        }
+
         return Syllabus::where('id', $id)
             ->where('professor_id', Auth::id())
             ->firstOrFail();
@@ -122,11 +127,17 @@ class SyllabusEditController extends Controller
     }
 
     // ── Step 6 ───────────────────────────────────────────────────────────────
+    // COOP must be relaxed here (same as the create-mode step-6 route) so the
+    // Google OAuth popup can postMessage the token back and window.closed polling
+    // works. We set the headers directly on the resolved HTTP response here in
+    // the controller so they are never overridden by downstream middleware.
     public function editStep6(string $hash)
     {
-        $id = SyllabusHashId::decode($hash); 
+        $id = SyllabusHashId::decode($hash);
         $syllabus = $this->findOwned($id);
 
+        // toResponse() resolves the Inertia\Response into a real HTTP response
+        // so we can reliably set headers on it before it is sent to the browser.
         return Inertia::render('syllabus_steps/Step6', [
             'isEditMode'   => true,
             'syllabusHash' => $hash,
@@ -137,6 +148,9 @@ class SyllabusEditController extends Controller
             'step4'        => $this->safeJson($syllabus->step4),
             'step5'        => $this->safeJson($syllabus->step5),
             'step6'        => $this->safeJson($syllabus->step6),
-        ]);
+        ])
+        ->toResponse(request())
+        ->header('Cross-Origin-Opener-Policy',   'unsafe-none')
+        ->header('Cross-Origin-Embedder-Policy', 'unsafe-none');
     }
 }

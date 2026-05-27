@@ -9,7 +9,7 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { CircleArrowDown, CircleArrowLeft, Files, FileText, Printer } from "lucide-react";
 
-export default function PdfViewer({ file }: any) {
+export default function PdfViewer({ file, onClose }: { file: any; onClose?: () => void }) {
   const [numPages, setNumPages]         = useState<number | null>(null);
   const [pageNumber, setPageNumber]     = useState(1);
   const [loadingError, setLoadingError] = useState(false);
@@ -174,7 +174,7 @@ export default function PdfViewer({ file }: any) {
           }`}
         >
           <button
-            onClick={() => router.visit("/dashboard")}
+            onClick={() => onClose ? onClose() : router.visit("/dashboard")}
             className="flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-black group"
           >
             <CircleArrowLeft className="w-5 h-5 transition-all duration-300 stroke-current group-hover:scale-110 group-hover:-rotate-180 group-hover:text-black" />
@@ -208,20 +208,20 @@ export default function PdfViewer({ file }: any) {
         {/* Main scrollable content */}
         <main
           ref={mainContainerRef}
-          className={`flex-1 overflow-y-auto p-4 sm:p-12 scroll-smooth transition-colors duration-300 ${
+          className={`flex-1 overflow-y-auto overflow-x-auto p-4 sm:p-12 scroll-smooth transition-colors duration-300 ${
             isDarkMode ? "bg-[#121212]" : "bg-[#f4f4f7]"
           }`}
         >
           {isHtmlMode ? (
-            /* ── HTML SYLLABUS VIEWER ── */
+            /* ── HTML SYLLABUS VIEWER (landscape) ── */
             <div
               style={{
                 transformOrigin: "top center",
                 transform: `scale(${scale})`,
-                // Compensate layout height when zoomed out so scrollbar stays accurate
-                marginBottom: scale < 1 ? `${(scale - 1) * 600}px` : 0,
-                width: "100%",
-                maxWidth: 960,
+                // Compensate layout height when zoomed out
+                marginBottom: scale < 1 ? `${(scale - 1) * 900}px` : 0,
+                // Landscape syllabus is ~13in wide — fixed wide container
+                width: 1260,
                 margin: "0 auto",
                 filter: isDarkMode ? "invert(0.88) hue-rotate(180deg)" : "none",
                 transition: "transform 0.15s ease, filter 0.3s",
@@ -232,21 +232,34 @@ export default function PdfViewer({ file }: any) {
                 srcDoc={file.syllabusHtml}
                 title="syllabus-viewer"
                 style={{
-                  width: "100%",
-                  minHeight: "80vh",
+                  // Landscape: 13in × 8.5in at 96 dpi ≈ 1248 × 816px
+                  width: "1260px",
+                  minHeight: "820px",
                   border: "none",
                   background: "white",
                   boxShadow: "0 4px 32px rgba(0,0,0,0.18)",
                   display: "block",
                 }}
                 onLoad={(e) => {
-                  // Expand iframe to full content height so outer container scrolls through all pages
                   const iframe = e.currentTarget;
                   try {
-                    const body = iframe.contentDocument?.body;
-                    if (body) {
-                      iframe.style.height = body.scrollHeight + 60 + "px";
+                    const doc  = iframe.contentDocument;
+                    const body = doc?.body;
+                    if (!body) return;
+
+                    // Inject landscape print stylesheet so Print respects orientation
+                    if (doc && !doc.getElementById("__landscape-print-style__")) {
+                      const style = doc.createElement("style");
+                      style.id = "__landscape-print-style__";
+                      style.textContent = `
+                        @page { size: landscape; margin: 0; }
+                        @media print { html, body { margin: 0; padding: 0; } }
+                      `;
+                      doc.head?.appendChild(style);
                     }
+
+                    // Size iframe to full rendered height of all pages
+                    iframe.style.height = body.scrollHeight + 40 + "px";
                   } catch {}
                 }}
               />

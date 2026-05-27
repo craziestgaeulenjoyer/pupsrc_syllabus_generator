@@ -1186,39 +1186,43 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     };
 
     const uploadToGoogleDocs = async (base64: string, fileName: string): Promise<void> => {
-        // 1. Decode base64 → binary Uint8Array → Blob (preserves exact binary content)
+        // ── Step 1: Decode base64 → raw bytes ────────────────────────────────
         const binaryStr = atob(base64);
         const bytes     = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-        const docxBlob  = new Blob([bytes], {
-            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        });
 
-        // 2. Get a Google OAuth token via a popup (implicit flow — no server secret needed)
+        // Sanity-check: DOCX is a ZIP — must start with PK\x03\x04
+        if (bytes[0] !== 0x50 || bytes[1] !== 0x4B || bytes[2] !== 0x03 || bytes[3] !== 0x04) {
+            throw new Error('Server returned an invalid DOCX (bad magic bytes). Check PHP logs.');
+        }
+        console.log('[GDocs] DOCX valid, size:', bytes.byteLength);
+
+        // ── Step 2: Client-ID guard ───────────────────────────────────────────
         const GOOGLE_CLIENT_ID = (window as any).GOOGLE_DOCS_CLIENT_ID ?? '';
         if (!GOOGLE_CLIENT_ID) {
-            const url  = URL.createObjectURL(docxBlob);
-            const link = document.createElement('a');
-            link.href = url; link.download = fileName;
-            document.body.appendChild(link); link.click(); link.remove();
-            URL.revokeObjectURL(url);
-            alert('Google Docs upload requires GOOGLE_DOCS_CLIENT_ID to be set. File downloaded instead.');
+            alert('Google Docs export requires GOOGLE_DOCS_CLIENT_ID.\nCheck your .env and app.blade.php.');
             return;
         }
 
+        // ── Step 3: OAuth popup ───────────────────────────────────────────────
         const token = await new Promise<string>((resolve, reject) => {
             const redirectUri = `${window.location.origin}/google-oauth-callback`;
             const scope       = 'https://www.googleapis.com/auth/drive.file';
+            // prompt=select_account forces the user to explicitly pick an account.
+            // That chosen account becomes authuser=0 in the newly-opened Docs tab,
+            // which is what we pass in the open URL below.  Using prompt=consent
+            // can silently re-use a cached session that doesn't match the browser's
+            // active Google account, causing "File could not open" in Docs.
             const authUrl     =
                 `https://accounts.google.com/o/oauth2/v2/auth` +
                 `?client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
                 `&redirect_uri=${encodeURIComponent(redirectUri)}` +
                 `&response_type=token` +
                 `&scope=${encodeURIComponent(scope)}` +
-                `&prompt=consent`;
+                `&prompt=select_account`;
 
             const popup = window.open(authUrl, 'googleOAuth', 'width=500,height=600,left=300,top=100');
-            if (!popup) { reject(new Error('Popup was blocked — please allow popups for this site.')); return; }
+            if (!popup) { reject(new Error('Popup blocked — please allow popups for this site.')); return; }
 
             const handler = (event: MessageEvent) => {
                 if (event.origin !== window.location.origin) return;
@@ -1233,98 +1237,140 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                 }
             };
             window.addEventListener('message', handler);
-            // Give postMessage a 1.5 s grace window after the popup closes before
-            // treating it as a cancelled sign-in. This prevents a race where the
-            // popup closes (triggering this check) a split-second before the
-            // postMessage arrives in the opener — which would otherwise cause the
-            // Promise to reject even though the token was successfully sent.
-            // NOTE: accessing popup.closed throws when COOP is "same-origin", so
-            // we wrap it in a try/catch; the route now sends COOP: unsafe-none to
-            // prevent that entirely.
+
             let closedAt: number | null = null;
             const timer = setInterval(() => {
-                try {
-                    if (!popup.closed) { closedAt = null; return; }
-                } catch {
-                    // COOP blocked the check — assume still open, let postMessage handle it
-                    return;
-                }
+                // Under a strict COOP policy the browser blocks popup.closed reads
+                // with a SecurityError once the popup navigates cross-origin.
+                // Treat that error as "popup is closed" so we don't loop forever.
+                let isClosed = false;
+                try { isClosed = popup.closed; } catch { isClosed = true; }
+                if (!isClosed) { closedAt = null; return; }
                 if (closedAt === null) { closedAt = Date.now(); return; }
                 if (Date.now() - closedAt > 1500) {
                     clearInterval(timer);
                     window.removeEventListener('message', handler);
-                    reject(new Error('Sign-in window was closed before completing.'));
+                    reject(new Error('Sign-in window closed before completing.'));
                 }
             }, 500);
         });
 
-        // 3. Build a properly-formatted multipart/related body and POST it to
-        //    the Drive upload endpoint in one request. Drive sees
-        //    mimeType=vnd.google-apps.document and converts the DOCX automatically.
+        // ── Step 4: Validate token ────────────────────────────────────────────
+        const tokenInfo = await fetch(
+            `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`
+        );
+        if (!tokenInfo.ok) {
+            const info = await tokenInfo.json().catch(() => ({}));
+            throw new Error(
+                `OAuth token invalid/expired.\n` +
+                `Details: ${info?.error_description ?? info?.error ?? 'unknown'}\n\n` +
+                `Ensure your OAuth client type is "Web application" and\n` +
+                `${window.location.origin}/google-oauth-callback is an Authorized redirect URI.`
+            );
+        }
+        const tokenData = await tokenInfo.json();
+        if (tokenData.aud && tokenData.aud !== GOOGLE_CLIENT_ID) {
+            throw new Error(`Token client ID mismatch.\nExpected: ${GOOGLE_CLIENT_ID}\nGot: ${tokenData.aud}`);
+        }
+        if (!(tokenData.scope ?? '').includes('drive')) {
+            throw new Error(`Token missing drive scope.\nGranted: ${tokenData.scope}\n\nEnable Google Drive API in Cloud Console.`);
+        }
+
+        // ── Step 5: Upload DOCX with server-side conversion to a native Google Doc ──
         //
-        //    Rules that must be exact or Drive returns 400 badRequest:
-        //      • First boundary line: "--{boundary}\r\n"  (NO leading \r\n)
-        //      • Between parts:       "\r\n--{boundary}\r\n"
-        //      • Final boundary:      "\r\n--{boundary}--"
-        //      • Content-Type header: boundary value MUST be quoted
+        // Setting mimeType:'application/vnd.google-apps.document' in the multipart
+        // metadata tells the Drive v3 API to convert the DOCX and store it as a
+        // native Google Doc on ingestion.  No extra query param is required — the
+        // mimeType field alone is what triggers conversion in Drive v3.
+        //
+        // Opening the result via docs.google.com/document/d/{id}/edit (the real
+        // Docs editor URL) avoids the "File could not open" error that occurred
+        // with the old drive.google.com/file/d/{id}/view viewer URL.
+        //
+        // Binary integrity: assemble the multipart body with Blob concatenation.
+        // Never pass the binary `bytes` through TextEncoder — it corrupts bytes > 0x7F.
+        // p1 / p2h / p2c are ASCII-only so TextEncoder is safe for those parts only.
+        //
+        const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const GDOC_MIME = 'application/vnd.google-apps.document';
+        const docName   = fileName.replace(/\.docx$/i, '');
+        const boundary  = `gdocs_${Date.now()}`;
 
-        const boundary = 'syllabus_gdrive_' + Date.now();
+        // mimeType in metadata is all Drive v3 needs to trigger DOCX → Google Doc conversion.
+        const meta = JSON.stringify({ name: docName, mimeType: GDOC_MIME });
 
-        const metadata = {
-            name:     fileName.replace(/\.docx$/i, ''),
-            mimeType: 'application/vnd.google-apps.document',
-        };
+        const enc = new TextEncoder();
+        const p1  = enc.encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`);
+        const p2h = enc.encode(`--${boundary}\r\nContent-Type: ${DOCX_MIME}\r\n\r\n`);
+        const p2c = enc.encode(`\r\n--${boundary}--\r\n`);
 
-        // NEW — every text segment is explicitly encoded to Uint8Array bytes first,
-        // preventing any charset mangling when mixed with the binary DOCX content.
-        const part1Bytes = encodeText(
-            `--${boundary}\r\n` +
-            `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-            JSON.stringify(metadata)
-        );
+        // Blob concat keeps binary bytes byte-for-byte intact.
+        const bodyBlob = new Blob([p1, p2h, bytes, p2c]);
 
-        const part2HeaderBytes = encodeText(
-            `\r\n--${boundary}\r\n` +
-            `Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n`
-        );
+        console.log('[GDocs] Uploading multipart body, total bytes:', bodyBlob.size);
 
-        const closingBytes = encodeText(`\r\n--${boundary}--`);
-
-        // Combine all parts as raw Uint8Arrays so binary content is never re-encoded
-        const multipartBody = new Blob(
-            [part1Bytes, part2HeaderBytes, docxBlob, closingBytes],
-            { type: `multipart/related; boundary="${boundary}"` }
-        );
-
+        // Drive v3 converts DOCX → Google Doc based solely on the mimeType field in
+        // the metadata above.  No extra query param is needed — convert=true was a
+        // Drive v2-only parameter and causes a 400 badRequest in v3.
         const uploadResp = await fetch(
             'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
             {
                 method:  'POST',
                 headers: {
-                    Authorization:  `Bearer ${token}`,
-                    'Content-Type': `multipart/related; boundary="${boundary}"`,
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type':  `multipart/related; boundary="${boundary}"`,
                 },
-                body: multipartBody,
+                body: bodyBlob,
             }
         );
 
         if (!uploadResp.ok) {
             const err = await uploadResp.text();
-            throw new Error(`Google Drive upload failed: ${err}`);
+            console.error('[GDocs] Upload failed:', uploadResp.status, err);
+            throw new Error(`Google Drive upload failed (${uploadResp.status}): ${err}`);
         }
 
         const uploaded = await uploadResp.json();
+        if (!uploaded.id) throw new Error('Drive did not return a file ID.');
 
-        if (!uploaded.id) {
-            throw new Error('Google Drive did not return a file ID.');
-        }
+        console.log('[GDocs] Upload complete! File ID:', uploaded.id);
 
-        // Open the converted Google Doc
-        window.open(
-            `https://docs.google.com/document/d/${uploaded.id}/edit`,
-            '_blank',
-            'noopener,noreferrer'
-        );
+        // ── Step 6: Open the converted Google Doc with the correct account ────
+        //
+        // "File could not open" also occurs when the browser's active Google account
+        // doesn't match the account that owns the uploaded file.
+        //
+        // Important: ?authuser= only accepts INTEGER indices (0, 1, 2…), NOT an
+        // email address.  Passing an email is silently ignored by Google and the
+        // wrong account may be used.  The correct approach:
+        //   • We used prompt=select_account in the OAuth URL (Step 3 above), which
+        //     forces the user to explicitly choose an account in the popup.
+        //   • That chosen account is always index 0 in the new tab's Google session.
+        //   • Therefore authuser=0 reliably pins the correct account.
+        //
+        // We still fetch the email via userinfo purely for the console log so it is
+        // easy to confirm which account was used during debugging.
+        let authEmail = '';
+        try {
+            const meResp = await fetch(
+                'https://www.googleapis.com/oauth2/v3/userinfo',
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            if (meResp.ok) {
+                const me = await meResp.json();
+                authEmail = me.email ?? '';
+                console.log('[GDocs] Authenticated as:', authEmail);
+            }
+        } catch { /* non-fatal — authuser=0 still works without the email log */ }
+
+        // docs.google.com/document/d/{id}/edit  ← real Docs editor, never shows
+        // "File could not open" for a converted Google Doc.
+        // authuser=0 works because prompt=select_account in the OAuth popup
+        // guarantees the chosen account is position 0 in this new tab's session.
+        const openUrl = `https://docs.google.com/document/d/${uploaded.id}/edit?authuser=0`;
+        console.log('[GDocs] Opening:', openUrl, '| account:', authEmail || '(unknown)');
+
+        window.open(openUrl, '_blank', 'noopener,noreferrer');
     };
 
     const handleGenerateSyllabus = async () => {
@@ -1354,15 +1400,54 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
 
             const isGdocs = exportFormatRef.current === 'gdocs';
 
-            // In edit mode: first save all changes via PATCH
             if (isEditMode && syllabusHash) {
-                await axios.patch(
-                    `/syllabi/${syllabusHash}`,
-                    { ...payload, download: false }
-                );
-            }
+                if (isGdocs) {
+                    // Edit mode + Google Docs: single PATCH with download:true.
+                    // The update() controller now returns the same base64 JSON as store(),
+                    // so we can avoid a redundant second POST to /syllabus-generator/save.
+                    const response = await axios.patch(
+                        `/syllabi/${syllabusHash}`,
+                        { ...payload, download: true },
+                        { responseType: 'json' }
+                    );
+                    const { base64, file_name } = response.data;
+                    if (!base64) throw new Error('Server returned no file data.');
+                    await uploadToGoogleDocs(base64, file_name ?? `${fileNameRef.current}.docx`);
+                } else {
+                    // Edit mode + PDF/DOCX: save first, then download via POST
+                    await axios.patch(
+                        `/syllabi/${syllabusHash}`,
+                        { ...payload, download: false }
+                    );
 
-            if (isGdocs) {
+                    const response = await axios.post(
+                        '/syllabus-generator/save',
+                        { ...payload, download: true },
+                        { responseType: 'blob' }
+                    );
+
+                    const contentType: string = response.headers?.['content-type'] ?? '';
+                    if (contentType.includes('application/json')) {
+                        const text   = await (response.data as Blob).text();
+                        const parsed = JSON.parse(text);
+                        throw new Error(parsed?.export_error ?? parsed?.message ?? 'Export failed.');
+                    }
+
+                    const mimeType = exportFormatRef.current === 'docx'
+                        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                        : 'application/pdf';
+
+                    const blob        = new Blob([response.data], { type: mimeType });
+                    const downloadUrl = URL.createObjectURL(blob);
+                    const link        = document.createElement('a');
+                    link.href         = downloadUrl;
+                    link.download     = `${fileNameRef.current}.${exportFormatRef.current === 'docx' ? 'docx' : 'pdf'}`;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    URL.revokeObjectURL(downloadUrl);
+                }
+            } else if (isGdocs) {
                 // Google Docs path: server generates DOCX and returns it as base64 JSON.
                 // We then upload it directly from the browser to Google Drive, which
                 // converts it to a native Google Doc that the user can edit online.
@@ -1826,8 +1911,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                     {exportFormat === 'docx' && <CheckCircle size={18} className="text-blue-600" fill="currentColor" />}
                                 </div>
 
-                                {/* Google Docs Selection */}
-                                <div
+                                {/* Google Docs Selection — temporarily hidden */}
+                                {false && <div
                                     onClick={() => setExportFormat('gdocs')}
                                     className={`cursor-pointer p-4 md:p-5 rounded-xl border-2 transition-all flex items-center justify-between
                                     ${exportFormat === 'gdocs' ? 'bg-white border-white' : 'bg-white/10 border-white/20 hover:bg-white/20'}`}
@@ -1858,7 +1943,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                         </div>
                                     </div>
                                     {exportFormat === 'gdocs' && <CheckCircle size={18} className="text-green-600" fill="currentColor" />}
-                                </div>
+                                </div>}
 
                                 {/* Filename Input */}
                                 <div className="pt-4 space-y-2">
@@ -2032,7 +2117,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     }) => (
                         <div className={`flex items-center gap-3 w-full max-w-[860px] mx-auto ${isFirst ? 'mb-3' : 'my-4'}`}>
                             {/* Left line */}
-                            <div className="flex-1 h-px bg-slate-500/40" />
+                            <div className="flex-1 h-px bg-transparent" />
                             {/* Badge */}
                             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-600/50 shadow-sm shrink-0">
                                 <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
@@ -2044,7 +2129,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 <span className="text-[#fbbf24] text-[10px] font-black">Pg {pageNum}</span>
                             </div>
                             {/* Right line */}
-                            <div className="flex-1 h-px bg-slate-500/40" />
+                            <div className="flex-1 h-px bg-transparent" />
                         </div>
                     );
 
@@ -2744,7 +2829,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 : "/syllabus-generator/step-5"}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 sm:px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 text-xs md:text-sm border border-slate-200 transition-all active:scale-95"
                         >
-                            <ChevronLeft size={16} /> <span>Bacdddk</span>
+                            <ChevronLeft size={16} /> <span>Back</span>
                         </Link>
 
                         <button
@@ -2814,4 +2899,4 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
     );
 };
 
-export default Step6; 
+export default Step6;

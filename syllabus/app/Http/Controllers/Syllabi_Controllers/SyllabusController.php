@@ -12,9 +12,97 @@ use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\Shared\Html;
 use PhpOffice\PhpWord\Shared\Converter;
 use App\Models\Syllabus;
+use App\Helpers\SyllabusHashId;
+use Inertia\Inertia;
 
 class SyllabusController extends Controller
 {
+    /**
+     * Show a single syllabus in the PDF viewer.
+     * Route: GET /viewer/{id}
+     */
+    public function show(int $id)
+    {
+        $professorId = Auth::id();
+
+        if (!$professorId) {
+            return redirect()->route('login');
+        }
+
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId)
+            ->firstOrFail();
+
+        $step1 = $this->safeJson($syllabus->step1);
+        $step2 = $this->safeJson($syllabus->step2);
+        $step3 = $this->safeJson($syllabus->step3);
+        $step4 = $this->safeJson($syllabus->step4);
+        $step5 = $this->safeJson($syllabus->step5);
+        $step6 = $this->safeJson($syllabus->step6);
+
+        $courseCode  = $syllabus->course_code  ?? ($step1['course_code']  ?? '');
+        $courseTitle = $syllabus->course_title ?? ($step1['course_title'] ?? '');
+        $courseName  = $syllabus->course_name_header ?? trim($step6['courseName'] ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
+        $header      = $step6['header'] ?? '';
+        $footer      = $step6['footer'] ?? '';
+
+        // Stream the PDF directly into the browser (inline, not download)
+        $html = $this->buildHtml($courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+        $pdf  = Pdf::loadHTML($html)->setPaper([0, 0, 612, 1008], 'landscape');
+
+        return $pdf->stream("{$courseCode}_syllabus.pdf");
+    }
+
+    /**
+     * Show a single syllabus in the Inertia PdfViewer (HTML mode).
+     * Route: GET /viewer/{id}/view
+     */
+    public function showViewer(int $id)
+    {
+        $professorId = Auth::id();
+
+        if (!$professorId) {
+            return redirect()->route('login');
+        }
+
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId)
+            ->firstOrFail();
+
+        $step1 = $this->safeJson($syllabus->step1);
+        $step2 = $this->safeJson($syllabus->step2);
+        $step3 = $this->safeJson($syllabus->step3);
+        $step4 = $this->safeJson($syllabus->step4);
+        $step5 = $this->safeJson($syllabus->step5);
+        $step6 = $this->safeJson($syllabus->step6);
+
+        $courseCode  = $syllabus->course_code  ?? ($step1['course_code']  ?? '');
+        $courseTitle = $syllabus->course_title ?? ($step1['course_title'] ?? '');
+        $courseName  = $syllabus->course_name_header ?? trim($step6['courseName'] ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
+        $header      = $step6['header'] ?? '';
+        $footer      = $step6['footer'] ?? '';
+
+        $syllabusHtml = $this->buildHtml(
+            $courseCode, $courseTitle, $courseName,
+            $step1, $step2, $step3, $step4, $step5,
+            $header, $footer
+        );
+
+        $name = $syllabus->syllabus_name ?? $courseTitle ?? $courseCode ?? "Syllabus #{$id}";
+        $date = $syllabus->updated_at
+            ? $syllabus->updated_at->format('F j, Y')
+            : ($syllabus->created_at ? $syllabus->created_at->format('F j, Y') : 'N/A');
+
+        return Inertia::render('pdf_viewer_layout/PdfViewer', [
+            'file' => [
+                'name'         => $name,
+                'date'         => $date,
+                'syllabusHtml' => $syllabusHtml,
+                'url'          => null,
+            ],
+        ]);
+    }
+
     public function store(Request $request)
     {
         $request->validate([
@@ -558,18 +646,23 @@ class SyllabusController extends Controller
         // every section after the first malformed table.
         $pageW   = (int)\PhpOffice\PhpWord\Shared\Converter::cmToTwip(33.16);
         $border  = $this->docxBorder();
-        $fntSm   = ['name' => 'Arial', 'size' => 8];
-        $fntXSm  = ['name' => 'Arial', 'size' => 7];
+        // ── Font constants — match COMP001 template (Arial Narrow throughout) ──
+        $fntSm   = ['name' => 'Arial Narrow', 'size' => 8];
+        $fntXSm  = ['name' => 'Arial Narrow', 'size' => 7];
         $fntBold = ['name' => 'Arial Narrow', 'size' => 9, 'bold' => true];
-        $fntNorm = ['name' => 'Arial', 'size' => 9];
-        $cellPad = ['top' => 40, 'bottom' => 40, 'left' => 60, 'right' => 60];
+        $fntNorm = ['name' => 'Arial Narrow', 'size' => 9];
+        $cellPad = ['top' => 30, 'bottom' => 30, 'left' => 50, 'right' => 50];
         $center  = ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER];
+        // ── Color palette — exact COMP001 hex values ─────────────────────────
+        // d6d6d6 = light blue used for all label/header cells (COURSE CODE, VISION, etc.)
+        // d6d6d6 = medium gray used for OBTL column headers and table section headers
+        // d6d6d6 = dark navy used for section banners (dark background, white text)
         $bgYellow   = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'FFF9C4'];
-        $bgBlue     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'E8F4FF'];
-        $bgGray     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'E2E8F0'];
+        $bgBlue     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'];
+        $bgGray     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'];
         $bgPink     = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'FFE8E8'];
-        $bgBanner   = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D6E4F0']; // section banner color
-        $bgLightGray= ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9E2F3'];
+        $bgBanner   = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6']; // section banner color
+        $bgLightGray= ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'];
 
         // ── Helper: add a full-width section banner row (matches PDF .section-banner) ──
         // Adds a 1-row table with one spanned bold centered dark-blue cell.
@@ -579,9 +672,9 @@ class SyllabusController extends Controller
             $tbl = $sec->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
             $tbl->addRow();
             $cell = $tbl->addCell($pageW, array_merge($border, ['cellMargin' => $cellPad,
-                'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'],
+                'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'],
             ]));
-            $cell->addText($label, ['name' => 'Arial', 'size' => 9, 'bold' => true, 'color' => 'FFFFFF'], $center);
+            $cell->addText($label, ['name' => 'Arial Narrow', 'size' => 9, 'bold' => true, 'color' => '000000'], $center);
         };
 
         // ── Helper: attach genuine Word header & footer to a section ──────────
@@ -745,19 +838,19 @@ class SyllabusController extends Controller
             ],
             [
                 'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
-                'spaceAfter' => 60
+                'spaceAfter' => 0
             ]
         );
 
         // ── BANNER: "BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY / OUTCOMES-BASED COURSE SYLLABUS"
         // Matches COMP001 template: dark background banner rendered as a shaped text box.
         // We approximate it with a shaded table row (dark blue, white text), centered.
-        $bgDarkBanner = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'];
+        $bgDarkBanner = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'];
         $bannerTable = $sec1->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-        $bannerTable->addRow(500);
+        $bannerTable->addRow(280);
         $bannerCell = $bannerTable->addCell($pageW, array_merge($border, [
             'shading'     => $bgDarkBanner,
-            'cellMargin'  => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
+            'cellMargin'  => ['top' => 60, 'bottom' => 60, 'left' => 80, 'right' => 80],
             'valign'      => 'center',
         ]));
         $bannerCell->addText(
@@ -766,7 +859,7 @@ class SyllabusController extends Controller
                 'name'  => 'Arial Narrow',
                 'size'  => 13,
                 'bold'  => true,
-                'color' => 'FFFFFF'
+                'color' => '000000'
             ],
             [
                 'alignment'  => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
@@ -781,7 +874,7 @@ class SyllabusController extends Controller
                 'name'  => 'Arial Narrow',
                 'size'  => 11,
                 'bold'  => true,
-                'color' => 'FFFFFF'
+                'color' => '000000'
             ],
             [
                 'alignment'  => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
@@ -797,7 +890,8 @@ class SyllabusController extends Controller
         //   Row 2: COURSE DESCRIPTION (spanning col 0) | description text (spanning cols 1-5)
         //   Row 3: PRE-REQUISITES | value | CO-REQUISITES | value (spanning remaining)
         //   Row 4+: VISION / MISSION / QUALITY STATEMENT POLICY / ILO (label col + value spanning 5)
-        $bgHeaderCell = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'B4C6E7'];
+        // d6d6d6 = exact COMP001 label cell background (COURSE CODE, COURSE TITLE, VISION, etc.)
+        $bgHeaderCell = ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'];
         $fntLabel     = ['name' => 'Arial Narrow', 'size' => 9, 'bold' => true];
         $fntValue     = ['name' => 'Arial Narrow', 'size' => 9];
         $fntValueBold = ['name' => 'Arial Narrow', 'size' => 9, 'bold' => true];
@@ -907,12 +1001,12 @@ class SyllabusController extends Controller
         $bannerTable2 = $sec2->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
         $bannerTable2->addRow();
         $bannerCell2 = $bannerTable2->addCell($pageW, array_merge($border, [
-            'shading'    => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'],
-            'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
+            'shading'    => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'],
+            'cellMargin' => ['top' => 60, 'bottom' => 60, 'left' => 80, 'right' => 80],
             'valign'     => 'center',
         ]));
-        $bannerCell2->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 13, 'bold' => true, 'color' => 'FFFFFF'], $center);
-        $bannerCell2->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 11, 'bold' => true, 'color' => 'FFFFFF'], $center);
+        $bannerCell2->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 13, 'bold' => true, 'color' => '000000'], $center);
+        $bannerCell2->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 11, 'bold' => true, 'color' => '000000'], $center);
 
         // Checkmark safe for PhpWord (explicit UTF-8 bytes for U+2713 ✓)
         $chk = "\xE2\x9C\x93";
@@ -1101,12 +1195,12 @@ class SyllabusController extends Controller
             $obtlBanner = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
             $obtlBanner->addRow();
             $obtlBannerCell = $obtlBanner->addCell($pageW, array_merge($border, [
-                'shading'    => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => '365F91'],
-                'cellMargin' => ['top' => 120, 'bottom' => 120, 'left' => 100, 'right' => 100],
+                'shading'    => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'],
+                'cellMargin' => ['top' => 60, 'bottom' => 60, 'left' => 80, 'right' => 80],
                 'valign'     => 'center',
             ]));
-            $obtlBannerCell->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 13, 'bold' => true, 'color' => 'FFFFFF'], $center);
-            $obtlBannerCell->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 11, 'bold' => true, 'color' => 'FFFFFF'], $center);
+            $obtlBannerCell->addText(strtoupper($courseName), ['name' => 'Arial Narrow', 'size' => 13, 'bold' => true, 'color' => '000000'], $center);
+            $obtlBannerCell->addText('OUTCOMES-BASED COURSE SYLLABUS', ['name' => 'Arial Narrow', 'size' => 11, 'bold' => true, 'color' => '000000'], $center);
 
             // OBTL table
             $obtlTable = $secO->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
@@ -1121,16 +1215,16 @@ class SyllabusController extends Controller
                     ['w' => $obtlWidths[2], 'txt' => 'Alignment to (CLOs)', 'rs' => 3],
                     ['w' => $obtlWidths[3], 'txt' => 'Learning Content/Topics', 'rs' => 3],
                 ] as $col) {
-                    $opts = array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F4CCCC'], 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
+                    $opts = array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'], 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
                     $c = $obtlTable->addCell($col['w'], $opts);
                     $c->addText($col['txt'], array_merge($fntSm, ['bold' => true]), $center);
                 }
                 // "Instructional Delivery Design" spans 3 cols
                 $iddW = $obtlWidths[4] + $obtlWidths[5] + $obtlWidths[6];
-                $iddCell = $obtlTable->addCell($iddW, array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'gridSpan' => 3, 'valign' => 'center', 'cellMargin' => $cellPad]));
+                $iddCell = $obtlTable->addCell($iddW, array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'], 'gridSpan' => 3, 'valign' => 'center', 'cellMargin' => $cellPad]));
                 $iddCell->addText('Instructional Delivery Design', array_merge($fntSm, ['bold' => true]), $center);
                 // Assessment Tasks rowspan=3
-                $opts = array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F4CCCC'], 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
+                $opts = array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'], 'valign' => 'center', 'vMerge' => 'restart', 'cellMargin' => $cellPad]);
                 $c = $obtlTable->addCell($obtlWidths[7], $opts);
                 $c->addText('Assessment Tasks (TAs)', array_merge($fntSm, ['bold' => true]), $center);
 
@@ -1140,9 +1234,9 @@ class SyllabusController extends Controller
                     $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue'])->addText('');
                 }
                 $fltaW = $obtlWidths[5] + $obtlWidths[6];
-                $obtlTable->addCell($obtlWidths[4], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'valign' => 'center', 'cellMargin' => $cellPad]))
+                $obtlTable->addCell($obtlWidths[4], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'], 'valign' => 'center', 'cellMargin' => $cellPad]))
                     ->addText('Face-to-Face', array_merge($fntSm, ['bold' => true]), $center);
-                $fltaCell = $obtlTable->addCell($fltaW, array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'gridSpan' => 2, 'valign' => 'center', 'cellMargin' => $cellPad]));
+                $fltaCell = $obtlTable->addCell($fltaW, array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'], 'gridSpan' => 2, 'valign' => 'center', 'cellMargin' => $cellPad]));
                 $fltaCell->addText('Flexible Learning and Teaching Activities (FLTAs)', array_merge($fntSm, ['bold' => true]), $center);
                 $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue'])->addText('');
 
@@ -1152,9 +1246,9 @@ class SyllabusController extends Controller
                     $obtlTable->addCell($obtlWidths[$ci], ['vMerge' => 'continue'])->addText('');
                 }
                 $obtlTable->addCell($obtlWidths[4], ['vMerge' => 'continue'])->addText('');
-                $obtlTable->addCell($obtlWidths[5], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'valign' => 'center', 'cellMargin' => $cellPad]))
+                $obtlTable->addCell($obtlWidths[5], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'], 'valign' => 'center', 'cellMargin' => $cellPad]))
                     ->addText('Synchronous', $fntXSm, $center);
-                $obtlTable->addCell($obtlWidths[6], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'D9EAF7'], 'valign' => 'center', 'cellMargin' => $cellPad]))
+                $obtlTable->addCell($obtlWidths[6], array_merge($border, ['shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6'], 'valign' => 'center', 'cellMargin' => $cellPad]))
                     ->addText('Asynchronous', $fntXSm, $center);
                 $obtlTable->addCell($obtlWidths[7], ['vMerge' => 'continue'])->addText('');
             }
@@ -1465,7 +1559,7 @@ class SyllabusController extends Controller
 
             // Group grade + Class/Faculty info + Signatories on first rubric page only
             if ($isFirst) {
-                $secR->addText('Part 2. Group grade', array_merge($fntSm, ['bold' => true]), ['spaceBefore' => 60, 'spaceAfter' => 40]);
+                $secR->addText('Part 2. Group grade', array_merge($fntSm, ['bold' => true]), ['spaceBefore' => 0, 'spaceAfter' => 0]);
 
                 $groupW = [(int)($pageW * 0.65)];
                 for ($n = 0; $n < 4; $n++) $groupW[] = (int)(($pageW - $groupW[0]) / 4);
@@ -1554,13 +1648,40 @@ class SyllabusController extends Controller
                 ];
                 $sigColW = (int)($pageW / max(1, count($sigList)));
                 $sigTable = $secR->addTable(['width' => $pageW, 'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::TWIP]);
-                $sigTable->addRow();
+                $sigTable->addRow(1200); // tall enough to display signature image
                 foreach ($sigList as $sig) {
                     $sName  = $t($s($sig['name']  ?? '______________________'));
                     $sTitle = $t($s($sig['title'] ?? ''));
                     $sRole  = $t($s($sig['role']  ?? ''));
-                    $sCell  = $sigTable->addCell($sigColW, array_merge($border, ['cellMargin' => $cellPad]));
-                    $sCell->addText('');  // single blank line for signature space
+                    $sigSrc = $sig['signature'] ?? '';
+                    $sCell  = $sigTable->addCell($sigColW, array_merge($border, ['cellMargin' => $cellPad, 'valign' => 'bottom']));
+
+                    // Render signature image when present (data URI -> temp file)
+                    if (!empty($sigSrc) && str_starts_with($sigSrc, 'data:')) {
+                        try {
+                            $commaPos = strpos($sigSrc, ',');
+                            $b64Data  = $commaPos !== false ? substr($sigSrc, $commaPos + 1) : '';
+                            $mime = 'png';
+                            if (preg_match('/data:image\/([a-z]+);/i', $sigSrc, $mimeMatch)) {
+                                $mime = strtolower($mimeMatch[1]);
+                                if ($mime === 'jpeg') $mime = 'jpg';
+                            }
+                            $sigTmp = tempnam(sys_get_temp_dir(), 'sig_') . '.' . $mime;
+                            file_put_contents($sigTmp, base64_decode($b64Data));
+                            $hfTempFiles[] = $sigTmp; // cleaned up after save()
+                            $sCell->addImage($sigTmp, [
+                                'width'         => 120,
+                                'height'        => 50,
+                                'wrappingStyle' => 'inline',
+                                'alignment'     => \PhpOffice\PhpWord\SimpleType\Jc::CENTER,
+                            ]);
+                        } catch (\Throwable $e) {
+                            $sCell->addText('', $fntSm);
+                        }
+                    } else {
+                        $sCell->addText('', $fntSm); // blank space when no signature uploaded
+                    }
+
                     $sCell->addText(strtoupper($sName), array_merge($fntSm, ['bold' => true]), $center);
                     $sCell->addText($sTitle, $fntXSm, $center);
                     $sCell->addText($sRole, array_merge($fntXSm, ['italic' => true]), $center);
@@ -1666,21 +1787,55 @@ class SyllabusController extends Controller
         $tmpDir  = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR);
         $tmpPath = $tmpDir . DIRECTORY_SEPARATOR . 'syllabus_gdocs_' . uniqid('', true) . '.docx';
 
+        Log::info('saveDocxForGoogleDocs: starting DOCX build', [
+            'baseName' => $baseName,
+            'tmpPath'  => $tmpPath,
+        ]);
+
         try {
             $this->buildDocxToPath($tmpPath, $baseName, $courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
         } catch (\Throwable $e) {
             @unlink($tmpPath);
+            Log::error('saveDocxForGoogleDocs: buildDocxToPath threw an exception', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             throw $e;
         }
 
-        if (!file_exists($tmpPath) || filesize($tmpPath) === 0) {
+        if (!file_exists($tmpPath)) {
+            Log::error('saveDocxForGoogleDocs: tmp file does not exist after build', ['tmpPath' => $tmpPath]);
+            throw new \RuntimeException('DOCX generation failed — output file not found.');
+        }
+
+        $fileSize = filesize($tmpPath);
+        if ($fileSize === 0) {
+            @unlink($tmpPath);
+            Log::error('saveDocxForGoogleDocs: tmp file is 0 bytes', ['tmpPath' => $tmpPath]);
             throw new \RuntimeException('DOCX generation produced an empty file.');
         }
 
-        $base64 = base64_encode(file_get_contents($tmpPath));
+        Log::info('saveDocxForGoogleDocs: DOCX built successfully', [
+            'file'     => $baseName,
+            'bytes'    => $fileSize,
+            'tmpPath'  => $tmpPath,
+        ]);
+
+        $raw    = file_get_contents($tmpPath);
         @unlink($tmpPath);
 
-        Log::info('Syllabus DOCX encoded for Google Docs upload', ['file' => $baseName]);
+        if ($raw === false || strlen($raw) === 0) {
+            Log::error('saveDocxForGoogleDocs: file_get_contents returned empty/false');
+            throw new \RuntimeException('Failed to read generated DOCX file.');
+        }
+
+        $base64 = base64_encode($raw);
+
+        Log::info('saveDocxForGoogleDocs: base64 payload ready', [
+            'file'          => $baseName,
+            'raw_bytes'     => strlen($raw),
+            'base64_length' => strlen($base64),
+        ]);
 
         return response()->json([
             'message'   => 'Syllabus ready for Google Docs.',
@@ -1720,11 +1875,11 @@ class SyllabusController extends Controller
         $cell->addText($text ?: ' ', $font, $align ?: []);
     }
 
-    /** Adds a bold label / header cell with light-gray background */
+    /** Adds a bold label / header cell with COMP001 light-blue background (d6d6d6) */
     private function docxHeaderCell(\PhpOffice\PhpWord\Element\Table $table, int $width, string $text, array $border, array $pad, array $font): void
     {
         $cell = $table->addCell($width, array_merge($border, ['cellMargin' => $pad, 'valign' => 'center',
-            'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'F5F5F5']]));
+            'shading' => ['val' => \PhpOffice\PhpWord\Style\Shading::PATTERN_CLEAR, 'color' => 'auto', 'fill' => 'd6d6d6']]));
         $cell->addText($text, array_merge($font, ['bold' => true]),
             ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::CENTER]);
     }
@@ -1827,19 +1982,19 @@ class SyllabusController extends Controller
             if ($isFirst) {
                 $theadHtml = '
                 <thead>
-                    <tr style="background:#ffe8e8;">
+                    <tr style="background:#d6d6d6;">
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Weeks<br/>(18 Weeks)</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Learning Outcomes (DLOs)</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Alignment to (CLOs)</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Learning Content/Topics</th>
-                        <th colspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;background:#e8f4ff;">Instructional Delivery Design</th>
+                        <th colspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;background:#e8e8e8;">Instructional Delivery Design</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Assessment Tasks (TAs)</th>
                     </tr>
-                    <tr style="background:#e8f4ff;">
+                    <tr style="background:#e8e8e8;">
                         <th rowspan="2" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Face-to-Face</th>
                         <th colspan="2" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Flexible Learning and Teaching Activities (FLTAs)</th>
                     </tr>
-                    <tr style="background:#e8f4ff;">
+                    <tr style="background:#e8e8e8;">
                         <th style="border:1px solid black;padding:4px;text-align:center;font-size:7pt;">Synchronous</th>
                         <th style="border:1px solid black;padding:4px;text-align:center;font-size:7pt;">Asynchronous</th>
                     </tr>
@@ -2207,17 +2362,22 @@ class SyllabusController extends Controller
 <meta charset="UTF-8">
 <style>
   * { box-sizing: border-box; }
-  @page { size: 8.5in 14in; margin: 0.5in 0.6in; }
+  @page { size: 8.5in 14in; margin: 0.5in 0.6in 0.65in; }
   body  { font-family: Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; color: #000; }
   .page {
-    padding: 8px 14px;
-    width: 8.5in;
-    min-height: 14in;
+    padding: 8px 14px 44px;
+    width: 100%;
+    max-width: 100%;
     page-break-after: always;
     box-sizing: border-box;
     position: relative;
+    border-bottom: 2px dashed #ccc;
+    margin-bottom: 0;
   }
-  .page:last-of-type { page-break-after: auto; }
+  .page:last-of-type { page-break-after: auto; border-bottom: none; }
+  @media print {
+    .page { width: 8.5in; min-height: 14in; border-bottom: none; }
+  }
   .custom-header {
     font-size: 8.5pt;
     line-height: 1.4;
@@ -2228,19 +2388,21 @@ class SyllabusController extends Controller
   .custom-footer {
     font-size: 8.5pt;
     line-height: 1.4;
-    margin-top: 4px;
     padding-top: 3px;
     border-top: 1px solid #888;
-    height: 36px !important;
-    max-height: 36px;
+    height: 36px;
     overflow: hidden;
     display: block;
+    position: absolute;
+    bottom: 8px;
+    left: 14px;
+    right: 14px;
   }
-  .header-yellow { background-color: #FFF9C4; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 6px; margin-bottom: 0; font-size: 9pt; }
+  .header-yellow { background-color: #d6d6d6; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 6px; margin-bottom: 0; font-size: 9pt; }
   .syllabus-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-wrap: break-word; font-size: 8pt; }
   .syllabus-table td, .syllabus-table th { border: 1px solid black; padding: 4px; vertical-align: top; }
-  .label-cell { background-color: #fcfcfc; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; vertical-align: middle; width: 15%; }
-  .section-banner { background: #e2e8f0; border: 1px solid black; padding: 4px; text-align: center; font-weight: bold; font-size: 8pt; text-transform: uppercase; margin-bottom: 0; }
+  .label-cell { background-color: #d6d6d6; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; vertical-align: middle; width: 15%; }
+  .section-banner { background: #d6d6d6; border: 1px solid black; padding: 4px; text-align: center; font-weight: bold; font-size: 8pt; text-transform: uppercase; margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -2330,7 +2492,7 @@ class SyllabusController extends Controller
     <table style="width:100%;border-collapse:collapse;font-size:8pt;">
         <tbody>
             <tr>
-                <td rowspan="{$ploRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-lr;transform:rotate(180deg);white-space:nowrap;">PROGRAM LEARNING OUTCOMES<br/>(PLO)</td>
+                <td rowspan="{$ploRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-rl;white-space:nowrap;">PROGRAM LEARNING OUTCOMES (PLO)</td>
                 <!-- Header row 1: description cell + Alignment to ILOs spanning -->
                 <td style="border:1px solid black;padding:6px;text-align:left;width:50%;font-size:8pt;">
                     <strong>Based on Commission on Higher Education Memorandum Reference</strong><br/>
@@ -2351,7 +2513,7 @@ class SyllabusController extends Controller
     <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-top:-1px;">
         <tbody>
             <tr>
-                <td rowspan="{$cloRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-lr;transform:rotate(180deg);white-space:nowrap;">COURSE LEARNING OUTCOMES<br/>(CLOs)</td>
+                <td rowspan="{$cloRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-rl;white-space:nowrap;">COURSE LEARNING OUTCOMES (CLOs)</td>
                 <td style="border:1px solid black;padding:6px;text-align:left;font-weight:bold;width:50%;font-size:8pt;">At the end of this course, the students are expected to:</td>
                 <th colspan="{$ploCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;">Alignment to PLOs</th>
             </tr>
