@@ -2117,7 +2117,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                     }) => (
                         <div className={`flex items-center gap-3 w-full max-w-[860px] mx-auto ${isFirst ? 'mb-3' : 'my-4'}`}>
                             {/* Left line */}
-                            <div className="flex-1 h-px bg-slate-500/40" />
+                            <div className="flex-1 h-px bg-transparent" />
                             {/* Badge */}
                             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-600/50 shadow-sm shrink-0">
                                 <span className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
@@ -2129,7 +2129,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 <span className="text-[#fbbf24] text-[10px] font-black">Pg {pageNum}</span>
                             </div>
                             {/* Right line */}
-                            <div className="flex-1 h-px bg-slate-500/40" />
+                            <div className="flex-1 h-px bg-transparent" />
                         </div>
                     );
 
@@ -2140,8 +2140,8 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                         >
                             <style dangerouslySetInnerHTML={{ __html: `
                                 .preview-container {
-                                    width: 100%;
-                                    max-width: 860px;
+                                    width: 297mm;
+                                    min-height: 210mm;
                                     margin: 0 auto;
                                     background: white;
                                     padding: 1rem;
@@ -2251,7 +2251,7 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                 {/* Scrollable pages */}
                                 <div className="flex-1 overflow-auto p-2 sm:p-4 md:p-8 bg-slate-500 flex flex-col items-center">
                                 <div className="w-full flex flex-col items-center">
-                                <div className="origin-top transition-all scale-[0.35] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.9] xl:scale-100 w-full flex flex-col items-center">
+                                <div className="origin-top transition-all scale-[0.25] sm:scale-[0.38] md:scale-[0.55] lg:scale-[0.72] xl:scale-[0.9] w-full flex flex-col items-center">
 
                                     {/* ══════════════════════════════════════════════
                                         PAGE 1 — STEP 1: Course Overview & Description
@@ -2411,14 +2411,14 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                         <strong>CMOs: CMO No. 25 s. 2015</strong><br/><br/>
                                                         <strong>The graduates of the program have the ability to:</strong>
                                                     </td>
-                                                    <td colSpan={iloCount} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                    <td colSpan={iloCount} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6'}}>
                                                         Alignment to ILOs
                                                     </td>
                                                 </tr>
                                                 <tr>
                                                     <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
                                                     {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
-                                                        <td key={n} className="border border-black text-center font-bold p-1" style={{width:'28px', fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{n}</td>
+                                                        <td key={n} className="border border-black text-center font-bold p-1" style={{width:'28px', fontSize:'8pt', backgroundColor:'#d6d6d6'}}>{n}</td>
                                                     ))}
                                                 </tr>
                                                 {plos.map((plo: any, idx: number) => (
@@ -2450,14 +2450,14 @@ const Step6 = ({ allSyllabusData }: { allSyllabusData: any }) => {
                                                     <td className="border border-black p-2 text-left font-bold align-middle" style={{width:'48%', fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
                                                         At the end of this course, the students are expected to:
                                                     </td>
-                                                    <td colSpan={plos.length} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                    <td colSpan={plos.length} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6'}}>
                                                         Alignment to PLOs
                                                     </td>
                                                 </tr>
                                                 <tr>
                                                     <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
                                                     {plos.map((_: any, i: number) => (
-                                                        <td key={i} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{i + 1}</td>
+                                                        <td key={i} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt', backgroundColor:'#d6d6d6'}}>{i + 1}</td>
                                                     ))}
                                                 </tr>
                                                 {clos.map((clo: any) => (

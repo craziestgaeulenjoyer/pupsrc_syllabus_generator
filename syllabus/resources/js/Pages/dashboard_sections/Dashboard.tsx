@@ -351,7 +351,7 @@ export default function Dashboard() {
                                     key={file.id}
                                     onClick={(e) => {
                                         if ((e.target as HTMLElement).closest(".file-menu")) return;
-                                        if (file.type === "PDF") router.visit(`/viewer/${file.id}`);
+                                        if (file.type === "PDF") router.visit(`/viewer/${file.id}/view`);
                                     }}
                                     className="rounded-2xl overflow-visible shadow-md hover:shadow-xl transition bg-white"
                                 >
@@ -438,7 +438,7 @@ export default function Dashboard() {
                                         key={file.id}
                                         onClick={(e) => {
                                             if ((e.target as HTMLElement).closest(".file-menu")) return;
-                                            if (file.type === "PDF") router.visit(`/viewer/${file.id}`);
+                                            if (file.type === "PDF") router.visit(`/viewer/${file.id}/view`);
                                         }}
                                         className="flex items-center justify-between bg-white border border-[#c7c7c7] rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition relative"
                                     >

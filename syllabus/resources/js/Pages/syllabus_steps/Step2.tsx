@@ -537,7 +537,7 @@ const Step2 = () => {
                                                         <strong>CMOs: CMO No. 25 s. 2015</strong><br/><br/>
                                                         <strong>The graduates of the program have the ability to:</strong>
                                                     </td>
-                                                    <td colSpan={iloCount} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                    <td colSpan={iloCount} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6'}}>
                                                         Alignment to ILOs
                                                     </td>
                                                 </tr>
@@ -545,7 +545,7 @@ const Step2 = () => {
                                                 <tr>
                                                     <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
                                                     {Array.from({ length: iloCount }, (_, i) => i + 1).map(n => (
-                                                        <td key={n} className="border border-black text-center font-bold p-1" style={{width:'28px', fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{n}</td>
+                                                        <td key={n} className="border border-black text-center font-bold p-1" style={{width:'28px', fontSize:'8pt', backgroundColor:'#d6d6d6'}}>{n}</td>
                                                     ))}
                                                 </tr>
                                                 {/* PLO data rows */}
@@ -579,7 +579,7 @@ const Step2 = () => {
                                                     <td className="border border-black p-2 text-left font-bold align-middle" style={{width:'48%', fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
                                                         At the end of this course, the students are expected to:
                                                     </td>
-                                                    <td colSpan={plos.length} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderBottom:'none'}}>
+                                                    <td colSpan={plos.length} className="border border-black p-1 text-center font-bold" style={{fontSize:'8pt', backgroundColor:'#d6d6d6'}}>
                                                         Alignment to PLOs
                                                     </td>
                                                 </tr>
@@ -587,7 +587,7 @@ const Step2 = () => {
                                                 <tr>
                                                     <td className="border border-black p-1" style={{backgroundColor:'#d6d6d6', borderTop:'none'}}></td>
                                                     {plos.map((_, i) => (
-                                                        <td key={i} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt', backgroundColor:'#d6d6d6', borderTop:'none'}}>{i + 1}</td>
+                                                        <td key={i} className="border border-black text-center font-bold p-1" style={{fontSize:'8pt', backgroundColor:'#d6d6d6'}}>{i + 1}</td>
                                                     ))}
                                                 </tr>
                                                 {/* CLO data rows */}

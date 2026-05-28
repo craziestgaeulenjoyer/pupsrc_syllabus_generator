@@ -3,11 +3,36 @@ import '../js/bootstrap';
 import { createRoot } from 'react-dom/client';
 import { createInertiaApp } from '@inertiajs/react';
 import React from 'react';
+import axios from 'axios';
 import GlobalSessionModal from './Layouts/GlobalSessionModal';
+
+// ── Global flag so the modal only fires once even if multiple requests 401 ──
+let sessionExpiredTriggered = false;
+
+// ── Register axios interceptor once at module load ──────────────────────────
+axios.interceptors.response.use(
+    response => response,
+    error => {
+        const status = error.response?.status;
+        if ((status === 401 || status === 419) && !sessionExpiredTriggered) {
+            sessionExpiredTriggered = true;
+            window.dispatchEvent(new CustomEvent('session-expired'));
+        }
+        return Promise.reject(error);
+    }
+);
 
 function GlobalSessionHandler({ flash }: any) {
     const [open, setOpen] = React.useState(false);
 
+    // Triggered by axios interceptor (401/419)
+    React.useEffect(() => {
+        const handler = () => setOpen(true);
+        window.addEventListener('session-expired', handler);
+        return () => window.removeEventListener('session-expired', handler);
+    }, []);
+
+    // Also triggered by server-side flash (Inertia redirect responses)
     React.useEffect(() => {
         if (flash?.error || flash?.session_expired) {
             setOpen(true);
@@ -17,7 +42,7 @@ function GlobalSessionHandler({ flash }: any) {
     return (
         <GlobalSessionModal
             open={open}
-            message={flash?.error || 'Session expired. Please login again.'}
+            message={flash?.error || 'Session expired. Please log in again.'}
             onClose={() => (window.location.href = '/login')}
         />
     );

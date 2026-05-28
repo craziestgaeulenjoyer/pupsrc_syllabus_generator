@@ -12,9 +12,97 @@ use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\Shared\Html;
 use PhpOffice\PhpWord\Shared\Converter;
 use App\Models\Syllabus;
+use App\Helpers\SyllabusHashId;
+use Inertia\Inertia;
 
 class SyllabusController extends Controller
 {
+    /**
+     * Show a single syllabus in the PDF viewer.
+     * Route: GET /viewer/{id}
+     */
+    public function show(int $id)
+    {
+        $professorId = Auth::id();
+
+        if (!$professorId) {
+            return redirect()->route('login');
+        }
+
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId)
+            ->firstOrFail();
+
+        $step1 = $this->safeJson($syllabus->step1);
+        $step2 = $this->safeJson($syllabus->step2);
+        $step3 = $this->safeJson($syllabus->step3);
+        $step4 = $this->safeJson($syllabus->step4);
+        $step5 = $this->safeJson($syllabus->step5);
+        $step6 = $this->safeJson($syllabus->step6);
+
+        $courseCode  = $syllabus->course_code  ?? ($step1['course_code']  ?? '');
+        $courseTitle = $syllabus->course_title ?? ($step1['course_title'] ?? '');
+        $courseName  = $syllabus->course_name_header ?? trim($step6['courseName'] ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
+        $header      = $step6['header'] ?? '';
+        $footer      = $step6['footer'] ?? '';
+
+        // Stream the PDF directly into the browser (inline, not download)
+        $html = $this->buildHtml($courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
+        $pdf  = Pdf::loadHTML($html)->setPaper('legal', 'landscape');
+
+        return $pdf->stream("{$courseCode}_syllabus.pdf");
+    }
+
+    /**
+     * Show a single syllabus in the Inertia PdfViewer (HTML mode).
+     * Route: GET /viewer/{id}/view
+     */
+    public function showViewer(int $id)
+    {
+        $professorId = Auth::id();
+
+        if (!$professorId) {
+            return redirect()->route('login');
+        }
+
+        $syllabus = Syllabus::where('id', $id)
+            ->where('professor_id', $professorId)
+            ->firstOrFail();
+
+        $step1 = $this->safeJson($syllabus->step1);
+        $step2 = $this->safeJson($syllabus->step2);
+        $step3 = $this->safeJson($syllabus->step3);
+        $step4 = $this->safeJson($syllabus->step4);
+        $step5 = $this->safeJson($syllabus->step5);
+        $step6 = $this->safeJson($syllabus->step6);
+
+        $courseCode  = $syllabus->course_code  ?? ($step1['course_code']  ?? '');
+        $courseTitle = $syllabus->course_title ?? ($step1['course_title'] ?? '');
+        $courseName  = $syllabus->course_name_header ?? trim($step6['courseName'] ?? 'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY');
+        $header      = $step6['header'] ?? '';
+        $footer      = $step6['footer'] ?? '';
+
+        $syllabusHtml = $this->buildHtml(
+            $courseCode, $courseTitle, $courseName,
+            $step1, $step2, $step3, $step4, $step5,
+            $header, $footer
+        );
+
+        $name = $syllabus->syllabus_name ?? $courseTitle ?? $courseCode ?? "Syllabus #{$id}";
+        $date = $syllabus->updated_at
+            ? $syllabus->updated_at->format('F j, Y')
+            : ($syllabus->created_at ? $syllabus->created_at->format('F j, Y') : 'N/A');
+
+        return Inertia::render('pdf_viewer_layout/PdfViewer', [
+            'file' => [
+                'name'         => $name,
+                'date'         => $date,
+                'syllabusHtml' => $syllabusHtml,
+                'url'          => null,
+            ],
+        ]);
+    }
+
     public function store(Request $request)
     {
         $request->validate([
@@ -272,7 +360,7 @@ class SyllabusController extends Controller
         string $header, string $footer)
     {
         $html = $this->buildHtml($courseCode, $courseTitle, $courseName, $step1, $step2, $step3, $step4, $step5, $header, $footer);
-        $pdf  = Pdf::loadHTML($html)->setPaper([0, 0, 612, 1008], 'landscape'); // legal: 8.5x14in in points
+        $pdf  = Pdf::loadHTML($html)->setPaper('legal', 'landscape');
         return $pdf->download("{$baseName}.pdf");
     }
 
@@ -1840,7 +1928,7 @@ class SyllabusController extends Controller
             $cells = '';
             for ($n = 1; $n <= $iloCount; $n++) {
                 $checked = !empty($iloMapping["{$pid}-{$n}"]);
-                $cells .= '<td style="border:1px solid black;text-align:center;font-weight:bold;font-size:9pt;">' . ($checked ? '&#10003;' : '') . '</td>';
+                $cells .= '<td style="border:1px solid black;text-align:center;font-weight:bold;font-size:9pt;font-family:DejaVu Sans,Arial,sans-serif;">' . ($checked ? '&#10003;' : '') . '</td>';
             }
             $ploIloRows .= "<tr><td style=\"border:1px solid black;padding:4px;font-size:8pt;\">" . ($idx + 1) . ".&nbsp;&nbsp;{$lbl}</td>{$cells}</tr>";
         }
@@ -1848,7 +1936,7 @@ class SyllabusController extends Controller
         // ILO header numbers
         $iloNums = '';
         for ($n = 1; $n <= $iloCount; $n++) {
-            $iloNums .= "<th style=\"border:1px solid black;width:28px;text-align:center;\">{$n}</th>";
+            $iloNums .= "<th style=\"border:1px solid black;width:28px;text-align:center;background-color:#d6d6d6;\">{$n}</th>";
         }
 
         // CLO → PLO rows
@@ -1868,7 +1956,7 @@ class SyllabusController extends Controller
         // PLO header numbers
         $ploNums = '';
         foreach ($plos as $i => $plo) {
-            $ploNums .= '<th style="border:1px solid black;width:28px;text-align:center;">' . ($i + 1) . '</th>';
+            $ploNums .= '<th style="border:1px solid black;width:28px;text-align:center;background-color:#d6d6d6;">' . ($i + 1) . '</th>';
         }
 
         // Rowspan = header rows (2) + data rows
@@ -1894,19 +1982,19 @@ class SyllabusController extends Controller
             if ($isFirst) {
                 $theadHtml = '
                 <thead>
-                    <tr style="background:#ffe8e8;">
+                    <tr style="background:#d6d6d6;">
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Weeks<br/>(18 Weeks)</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Learning Outcomes (DLOs)</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Alignment to (CLOs)</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Learning Content/Topics</th>
-                        <th colspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;background:#e8f4ff;">Instructional Delivery Design</th>
+                        <th colspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;background:#e8e8e8;">Instructional Delivery Design</th>
                         <th rowspan="3" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Assessment Tasks (TAs)</th>
                     </tr>
-                    <tr style="background:#e8f4ff;">
+                    <tr style="background:#e8e8e8;">
                         <th rowspan="2" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Face-to-Face</th>
                         <th colspan="2" style="border:1px solid black;padding:4px;text-align:center;font-size:8pt;">Flexible Learning and Teaching Activities (FLTAs)</th>
                     </tr>
-                    <tr style="background:#e8f4ff;">
+                    <tr style="background:#e8e8e8;">
                         <th style="border:1px solid black;padding:4px;text-align:center;font-size:7pt;">Synchronous</th>
                         <th style="border:1px solid black;padding:4px;text-align:center;font-size:7pt;">Asynchronous</th>
                     </tr>
@@ -2272,19 +2360,22 @@ class SyllabusController extends Controller
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 <style>
   * { box-sizing: border-box; }
-  @page { size: 8.5in 14in; margin: 0.5in 0.6in; }
-  body  { font-family: Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; color: #000; }
+  @page { size: 14in 8.5in landscape; margin: 0.5in 0.6in 0.65in; }
+  body  { font-family: DejaVu Sans, Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; color: #000; }
   .page {
-    padding: 8px 14px;
-    width: 8.5in;
-    min-height: 14in;
-    page-break-after: always;
+    padding: 8px 14px 44px;
+    width: 100%;
+    max-width: 100%;
     box-sizing: border-box;
     position: relative;
+    margin-bottom: 0;
+    page-break-inside: avoid;
   }
-  .page:last-of-type { page-break-after: auto; }
+  .page + .page { page-break-before: always; }
+  
   .custom-header {
     font-size: 8.5pt;
     line-height: 1.4;
@@ -2295,19 +2386,21 @@ class SyllabusController extends Controller
   .custom-footer {
     font-size: 8.5pt;
     line-height: 1.4;
-    margin-top: 4px;
     padding-top: 3px;
     border-top: 1px solid #888;
-    height: 36px !important;
-    max-height: 36px;
+    height: 36px;
     overflow: hidden;
     display: block;
+    position: absolute;
+    bottom: 8px;
+    left: 14px;
+    right: 14px;
   }
-  .header-yellow { background-color: #FFF9C4; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 6px; margin-bottom: 0; font-size: 9pt; }
+  .header-yellow { background-color: #d6d6d6; border: 1px solid black; font-weight: bold; text-align: center; text-transform: uppercase; padding: 6px; margin-bottom: 0; font-size: 9pt; }
   .syllabus-table { width: 100%; border-collapse: collapse; table-layout: fixed; word-wrap: break-word; font-size: 8pt; }
   .syllabus-table td, .syllabus-table th { border: 1px solid black; padding: 4px; vertical-align: top; }
-  .label-cell { background-color: #fcfcfc; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; vertical-align: middle; width: 15%; }
-  .section-banner { background: #e2e8f0; border: 1px solid black; padding: 4px; text-align: center; font-weight: bold; font-size: 8pt; text-transform: uppercase; margin-bottom: 0; }
+  .label-cell { background-color: #d6d6d6; font-weight: bold; text-align: center; font-size: 7pt; text-transform: uppercase; vertical-align: middle; width: 15%; }
+  .section-banner { background: #d6d6d6; border: 1px solid black; padding: 4px; text-align: center; font-weight: bold; font-size: 8pt; text-transform: uppercase; margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -2397,17 +2490,17 @@ class SyllabusController extends Controller
     <table style="width:100%;border-collapse:collapse;font-size:8pt;">
         <tbody>
             <tr>
-                <td rowspan="{$ploRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-lr;transform:rotate(180deg);white-space:nowrap;">PROGRAM LEARNING OUTCOMES<br/>(PLO)</td>
+                <td rowspan="{$ploRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-rl;white-space:nowrap;">PROGRAM LEARNING OUTCOMES (PLO)</td>
                 <!-- Header row 1: description cell + Alignment to ILOs spanning -->
                 <td style="border:1px solid black;padding:6px;text-align:left;width:50%;font-size:8pt;">
                     <strong>Based on Commission on Higher Education Memorandum Reference</strong><br/>
                     <strong>CMOs: CMO No. 25 s. 2015</strong><br/><br/>
                     <strong>The graduates of the program have the ability to:</strong>
                 </td>
-                <th colspan="{$iloCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;">Alignment to ILOs</th>
+                <th colspan="{$iloCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;background-color:#d6d6d6;">Alignment to ILOs</th>
             </tr>
             <tr>
-                <td style="border:1px solid black;padding:2px;"></td>
+                <td style="border:1px solid black;padding:2px;background-color:#d6d6d6;"></td>
                 {$iloNums}
             </tr>
             {$ploIloRows}
@@ -2418,12 +2511,12 @@ class SyllabusController extends Controller
     <table style="width:100%;border-collapse:collapse;font-size:8pt;margin-top:-1px;">
         <tbody>
             <tr>
-                <td rowspan="{$cloRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-lr;transform:rotate(180deg);white-space:nowrap;">COURSE LEARNING OUTCOMES<br/>(CLOs)</td>
+                <td rowspan="{$cloRowspan}" style="border:1px solid black;width:5%;text-align:center;padding:4px;vertical-align:middle;font-size:7pt;font-weight:bold;writing-mode:vertical-rl;white-space:nowrap;">COURSE LEARNING OUTCOMES (CLOs)</td>
                 <td style="border:1px solid black;padding:6px;text-align:left;font-weight:bold;width:50%;font-size:8pt;">At the end of this course, the students are expected to:</td>
-                <th colspan="{$ploCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;">Alignment to PLOs</th>
+                <th colspan="{$ploCount}" style="border:1px solid black;padding:4px;text-align:center;font-weight:bold;background-color:#d6d6d6;">Alignment to PLOs</th>
             </tr>
             <tr>
-                <td style="border:1px solid black;padding:2px;"></td>
+                <td style="border:1px solid black;padding:2px;background-color:#d6d6d6;"></td>
                 {$ploNums}
             </tr>
             {$cloPloRows}

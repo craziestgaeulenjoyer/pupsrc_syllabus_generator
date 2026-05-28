@@ -131,6 +131,7 @@ Route::middleware(['auth'])->group(function () {
 
     /* ---------------- PDF VIEWER ROUTES ---------------- */
     Route::get('/viewer/{id}', [SyllabusController::class, 'show'])->name('syllabus.view');
+    Route::get('/viewer/{id}/view', [SyllabusController::class, 'showViewer'])->name('syllabus.viewer');
 
     // ── TEMPORARY DEBUG ROUTE — remove after fixing ──────────────────────────
     Route::get('/debug-gdocs-logs', function () {
