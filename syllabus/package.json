@@ -6,7 +6,8 @@
         "dev": "vite",
         "serve": "php artisan serve",
         "electron": "electron electron/main.js",
-        "desktop": "concurrently \"npm run serve\" \"npm run dev\" \"wait-on http://127.0.0.1:8000 && npm run electron\""
+        "desktop": "concurrently \"npm run serve\" \"npm run dev\" \"wait-on http://127.0.0.1:8000 && npm run electron\"",
+        "build": "vite build"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",
